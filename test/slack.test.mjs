@@ -19,7 +19,7 @@ import { buildEditModal, parseEditModal } from '../adapters/slack/edit-modal.mjs
 import { tokenDaysRemaining } from '../adapters/server/health.mjs';
 
 /** 게시 가드를 통과한 상태 */
-const passed = { errors: [], postable: true };
+const passed = { errors: [], warnings: [], postable: true };
 
 const pdf = { name: '커리큘럼.pdf', mimetype: 'application/pdf' };
 
@@ -222,4 +222,21 @@ test('모달 입력을 되읽는다', () => {
   assert.deepEqual(parseEditModal(view), {
     runId: 'k'.repeat(36), mode: 'hourly', amount: '100,000', post: '고친 본문'
   });
+});
+
+test('경고만 있으면 승인 버튼이 뜨고, 누를 때 경고를 다시 보여준다', () => {
+  const { blocks } = buildPreviewMessage({
+    runId: 'm'.repeat(36),
+    verification: verification(),
+    publishCheck: { errors: [], warnings: ['날짜와 요일이 어긋납니다 — 9월 8일(월)'], postable: true }
+  });
+  const serialized = JSON.stringify(blocks);
+  assert.ok(serialized.includes(APPROVE_ACTION), '경고로 게시를 막지는 않습니다');
+  assert.match(serialized, /확인하고 넘어가세요/);
+
+  // 누르는 순간 눈앞에 있어야 "못 찾은 사람 책임"이 성립한다.
+  const actions = blocks.filter((b) => b.type === 'actions').at(-1);
+  const approve = actions.elements.find((e) => e.action_id === APPROVE_ACTION);
+  assert.match(approve.confirm.title.text, /확인 1건/);
+  assert.match(approve.confirm.text.text, /9월 8일\(월\)/);
 });

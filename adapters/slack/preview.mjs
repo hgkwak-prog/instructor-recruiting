@@ -37,6 +37,7 @@ export function buildPreviewMessage({
   // 승인 버튼은 **나갈 글자 그대로**가 검사를 통과했을 때만 뜬다.
   // verification.postable(조립 시점)만 보면 강사료 빈칸이 그대로 나간다.
   const ready = verification.postable && (publishCheck ? publishCheck.postable : false);
+  const guardWarnings = publishCheck?.warnings ?? [];
   const blocks = [
     {
       type: 'section',
@@ -75,12 +76,23 @@ export function buildPreviewMessage({
     }]
   });
 
-  if (publishCheck && publishCheck.errors.length > 0) {
+  if (publishCheck?.errors?.length > 0) {
     blocks.push({
       type: 'section',
       text: {
         type: 'mrkdwn',
         text: `:pencil2: *게시 전 처리 필요*\n${bulletList(publishCheck.errors)}`
+      }
+    });
+  }
+
+  // 경고는 막지 않는다. 보고 판단하는 것은 사람 몫이고, 눌렀다는 사실은 남는다.
+  if (guardWarnings.length > 0) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:eyes: *확인하고 넘어가세요* (게시는 막지 않습니다)\n${bulletList(guardWarnings)}`
       }
     });
   }
@@ -127,9 +139,16 @@ export function buildPreviewMessage({
           style: 'primary',
           text: { type: 'plain_text', text: '승인하고 게시' },
           value: runId,
+          // 경고가 있으면 누르는 순간 다시 한 번 보여 준다.
+          // "못 찾은 사람 책임"이 성립하려면 최소한 눈앞에 있었어야 한다.
           confirm: {
-            title: { type: 'plain_text', text: '게시할까요?' },
-            text: { type: 'mrkdwn', text: '승인하면 봇이 바로 채널에 올립니다.' },
+            title: { type: 'plain_text', text: guardWarnings.length > 0 ? `확인 ${guardWarnings.length}건, 게시할까요?` : '게시할까요?' },
+            text: {
+              type: 'mrkdwn',
+              text: guardWarnings.length > 0
+                ? `${bulletList(guardWarnings)}\n\n그대로 게시합니다.`
+                : '승인하면 봇이 바로 채널에 올립니다.'
+            },
             confirm: { type: 'plain_text', text: '게시' },
             deny: { type: 'plain_text', text: '취소' }
           }
@@ -149,7 +168,7 @@ export function buildPreviewMessage({
       elements: [{
         type: 'mrkdwn',
         text: verification.postable
-          ? '위 항목을 처리하면 승인 버튼이 나타납니다.'
+          ? '위 *처리 필요* 항목을 없애면 승인 버튼이 나타납니다.'
           : '확인 필요 항목이 남아 있습니다. 운영 조건을 채워 다시 생성하세요.'
       }]
     });

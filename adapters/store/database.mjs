@@ -67,7 +67,10 @@ const COLUMNS = [
   // 사람이 본문을 고칠 수 있게 열었으므로, 코드가 조립한 원본을 따로 남긴다.
   // 나쁜 공고가 나갔을 때 그 문장을 코드가 썼는지 사람이 썼는지 알아야 한다.
   { name: 'job_post_generated', type: 'TEXT' },
-  { name: 'compensation_json', type: 'TEXT' }
+  { name: 'compensation_json', type: 'TEXT' },
+  // 경고를 보고도 승인한 경우 그 경고를 남긴다. "못 찾은 사람 책임"이 성립하려면
+  // 무엇이 눈앞에 있었는지가 기록돼야 한다.
+  { name: 'acknowledged_warnings', type: 'TEXT' }
 ];
 
 /** 승인 전 본문·강사료를 갈아끼운다. 검토대기 상태에서만 가능하다. */
@@ -160,7 +163,7 @@ export function listRuns(db, status = null) {
  * run whose draft still has unfilled [확인 필요] markers cannot be approved at
  * all -- posting it would publish a placeholder.
  */
-export function reviewRun(db, { id, decision, reviewer, note, reviewedAt }) {
+export function reviewRun(db, { id, decision, reviewer, note, reviewedAt, acknowledgedWarnings = [] }) {
   const run = getRun(db, id);
   if (!run) throw new Error(`작업을 찾을 수 없습니다: ${id}`);
   if (run.status !== STATUS.REVIEW_PENDING) {
@@ -170,9 +173,13 @@ export function reviewRun(db, { id, decision, reviewer, note, reviewedAt }) {
     throw new Error('초안에 [확인 필요] 항목이 남아 있어 승인할 수 없습니다. 조건을 채워 다시 생성하세요.');
   }
   const { changes } = db.prepare(`UPDATE recruitment_runs
-    SET status = ?, reviewed_at = ?, reviewed_by = ?, review_note = ?
+    SET status = ?, reviewed_at = ?, reviewed_by = ?, review_note = ?, acknowledged_warnings = ?
     WHERE id = ? AND status = ?`)
-    .run(decision, reviewedAt, reviewer, note ?? null, id, STATUS.REVIEW_PENDING);
+    .run(
+      decision, reviewedAt, reviewer, note ?? null,
+      acknowledgedWarnings.length > 0 ? JSON.stringify(acknowledgedWarnings) : null,
+      id, STATUS.REVIEW_PENDING
+    );
   if (changes === 0) throw new Error(`검토 처리에 실패했습니다: ${id}`);
   return getRun(db, id);
 }

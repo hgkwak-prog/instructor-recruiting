@@ -103,12 +103,15 @@ test('[확인 필요]가 남아도 게시할 수 없다', () => {
   assert.ok(errors.some((e) => e.includes('교육장 주소')));
 });
 
-test('사람이 고친 뒤에도 요일이 틀리면 막는다', () => {
-  // 이 프로젝트가 존재하는 이유가 이 버그다. 본문 편집을 열었으니 사람도 낼 수 있다.
+test('요일이 틀리면 알리되 막지는 않는다', () => {
+  // 공고 실수는 사람이 내고 사람이 책임진다. 기계가 판단을 대신할 자리가 아니다.
+  // 다만 눈앞에는 띄워 준다 — 그래야 "못 찾은 사람 책임"이 성립한다.
   const edited = post('강사료(보조강사) : 총 1,000,000원')
     .replace('9월 8일(화)', '9월 8일(월)');
-  const { errors } = checkPostText(edited, { expectedTotal: 1_000_000, year: 2026 });
-  assert.ok(errors.some((e) => e.includes('9월 8일(월)') && e.includes('화요일')));
+  const { errors, warnings, postable } = checkPostText(edited, { expectedTotal: 1_000_000, year: 2026 });
+  assert.equal(postable, true, '요일 실수로 게시를 막지는 않습니다');
+  assert.deepEqual(errors, []);
+  assert.ok(warnings.some((w) => w.includes('9월 8일(월)') && w.includes('화요일')));
 });
 
 test('요일이 맞으면 통과한다', () => {
@@ -124,12 +127,13 @@ test('요일 계산 자체를 확인한다', () => {
   assert.equal(checkWeekdays('2026년 9월 1일(수)').length, 1);
 });
 
-test('비공개 고객사명이 본문에 있으면 막는다', () => {
-  const { errors } = checkPostText(
+test('비공개 고객사명이 보이면 경고한다', () => {
+  const { warnings, postable } = checkPostText(
     '*모집*\n삼성전자 임직원 대상\n강사료(보조강사) : 총 100,000원',
     { expectedTotal: 100_000, customerLabel: '삼성전자', customerHidden: true }
   );
-  assert.ok(errors.some((e) => e.includes('삼성전자')));
+  assert.equal(postable, true);
+  assert.ok(warnings.some((w) => w.includes('삼성전자')));
 });
 
 test('공개가 승인됐으면 고객사명이 있어도 된다', () => {
@@ -140,14 +144,16 @@ test('공개가 승인됐으면 고객사명이 있어도 된다', () => {
   assert.equal(postable, true);
 });
 
-test('승인한 금액과 다른 금액이 본문에 있으면 막는다', () => {
-  // 원문의 고객사 예산을 손으로 옮겨 적는 경로를 막는 것이 목적이다.
-  const { errors } = checkPostText(
-    '*모집*\n총 예산 5,000,000원 규모\n강사료(보조강사) : 총 1,000,000원',
+test('강사료 외의 금액은 경고한다 — 막지는 않는다', () => {
+  // `왕복 교통비 50,000원 지급`처럼 정당한 금액도 걸리기 때문이다.
+  // 원문의 고객사 예산을 옮겨 적었는지는 사람이 본다.
+  const { warnings, postable } = checkPostText(
+    '*모집*\n왕복 교통비 50,000원 지급\n강사료(보조강사) : 총 1,000,000원',
     { expectedTotal: 1_000_000 }
   );
-  assert.ok(errors.some((e) => e.includes('5,000,000')));
-  assert.ok(!errors.some((e) => e.includes('1,000,000원.')), '승인한 금액은 문제 삼지 않아야 합니다');
+  assert.equal(postable, true);
+  assert.ok(warnings.some((w) => w.includes('50,000')));
+  assert.ok(!warnings.some((w) => w.includes('1,000,000')), '승인한 금액은 문제 삼지 않아야 합니다');
 });
 
 test('시간당 단가와 총액이 함께 적힌 산식을 허용한다', () => {
@@ -158,9 +164,25 @@ test('시간당 단가와 총액이 함께 적힌 산식을 허용한다', () =>
   assert.equal(postable, true);
 });
 
-test('승인된 강사료가 없는데 금액이 있으면 막는다', () => {
-  const { errors } = checkPostText('강사료(보조강사) : 총 3,000,000원');
-  assert.ok(errors.some((e) => e.includes('승인된 강사료가 없는데')));
+test('승인된 강사료가 없는데 금액이 있으면 경고한다', () => {
+  const { warnings, postable } = checkPostText('강사료(보조강사) : 총 3,000,000원');
+  assert.equal(postable, true);
+  assert.ok(warnings.some((w) => w.includes('승인된 강사료가 없는데')));
+});
+
+test('막는 것은 미완성뿐이다', () => {
+  // 등급 구분 자체를 고정한다. 나중에 무심코 경고를 에러로 올리지 못하게.
+  const 미완성 = checkPostText('강사료(보조강사) : 총 ______ 원\n[확인 필요: 장소]');
+  assert.equal(미완성.postable, false);
+  assert.equal(미완성.errors.length, 2);
+
+  const 실수투성이 = checkPostText(
+    '2026년 9월 1일(수) 진행\n삼성전자 대상\n교통비 50,000원\n강사료(보조강사) : 총 100,000원',
+    { expectedTotal: 100_000, customerLabel: '삼성전자', year: 2026 }
+  );
+  assert.equal(실수투성이.postable, true, '실수가 많아도 사람이 판단한다');
+  assert.equal(실수투성이.errors.length, 0);
+  assert.ok(실수투성이.warnings.length >= 3);
 });
 
 test('빈 본문은 게시할 수 없다', () => {

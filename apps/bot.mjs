@@ -332,8 +332,13 @@ async function main() {
       }
 
       // 게이트가 여기 있다. postable=0이면 던진다.
+      // 경고는 막지 않지만, 무엇을 보고도 눌렀는지는 남긴다.
       reviewRun(db, {
-        id: runId, decision: STATUS.APPROVED, reviewer: approver, reviewedAt: new Date().toISOString()
+        id: runId,
+        decision: STATUS.APPROVED,
+        reviewer: approver,
+        reviewedAt: new Date().toISOString(),
+        acknowledgedWarnings: publishCheck.warnings
       });
 
       const run = getRun(db, runId);

@@ -6,8 +6,10 @@
  * 고칠 수 있게 열면서 그 전제가 깨졌다 — 조립된 글과 나가는 글이 달라졌다.
  *
  * 그래서 검사 지점을 옮긴다. 코드가 쓴 것이 아니라 **나가는 것**을 본다.
- * 자유 편집을 열어도 날짜·요일·금액·고객사 방어는 그대로 살아남는다.
- * 오히려 예전보다 강하다. 예전에는 조립본만 봤다.
+ *
+ * 다만 전부 막지는 않는다. 공고 실수는 사람이 내고 사람이 책임지는 일이고,
+ * 기계가 사람의 판단을 대신할 자리가 아니다. 미완성만 막고 나머지는 알린다.
+ * 모델은 부르지 않는다 — 정규식과 날짜 산술뿐이라 1000회에 7ms다.
  */
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -62,6 +64,15 @@ export function checkWeekdays(post, { year } = {}) {
 /**
  * 게시 가능한 글인가.
  *
+ * 두 등급으로 나눈다.
+ *
+ * **errors — 막는다.** 빈칸과 `[확인 필요]`. 이건 실수가 아니라 미완성이다.
+ * 요일이 틀린 공고는 창피하지만, 빈칸 공고는 지원자가 판단 자체를 못 한다.
+ *
+ * **warnings — 알리고 사람이 정한다.** 요일·금액·고객사명. 오탐이 난다
+ * (`왕복 교통비 50,000원 지급`은 정당한 금액이다). 기계가 사람의 판단을
+ * 대신할 자리가 아니고, 대신 **누가 경고를 보고도 눌렀는지는 남는다.**
+ *
  * @param {string} post           나갈 본문 그대로
  * @param {object} context
  * @param {number|null} context.expectedTotal   담당자가 승인한 강사료 총액
@@ -79,8 +90,10 @@ export function checkPostText(post, {
 } = {}) {
   const errors = [];
 
+  const warnings = [];
+
   if (typeof post !== 'string' || post.trim().length === 0) {
-    return { errors: ['본문이 비어 있습니다.'], postable: false };
+    return { errors: ['본문이 비어 있습니다.'], warnings, postable: false };
   }
 
   // 1. 채우다 만 자리. 예전에는 사람이 복붙하며 채웠기 때문에 드러나지 않았고,
@@ -94,18 +107,17 @@ export function checkPostText(post, {
     errors.push(`확인 필요 항목이 남아 있습니다: ${match[1] ?? '(항목 미상)'}`);
   }
 
-  // 3. 요일 정합성
+  // 3. 요일 정합성 — 경고. 사람이 고친 글이면 사람이 판단한다.
   for (const problem of checkWeekdays(post, { year })) {
-    errors.push(`날짜와 요일이 어긋납니다 — ${problem}`);
+    warnings.push(`날짜와 요일이 어긋납니다 — ${problem}`);
   }
 
-  // 4. 고객사명 노출
+  // 4. 고객사명 노출 — 경고. 공개 여부는 계약 사정이라 코드가 단정할 수 없다.
   if (customerHidden && customerLabel && post.includes(customerLabel)) {
-    errors.push(`고객사명이 본문에 있습니다: ${customerLabel}. 공개가 승인되지 않았습니다.`);
+    warnings.push(`고객사명이 본문에 있습니다: ${customerLabel}. 공개가 승인됐는지 확인하세요.`);
   }
 
-  // 5. 금액. 이제 금액이 있어도 된다 — 단, 담당자가 승인한 값이어야 한다.
-  //    원문의 고객사 예산이 손으로 옮겨 적히는 경로를 막는 것이 목적이다.
+  // 5. 금액 — 경고. 승인한 강사료 외의 금액이 보이면 알린다.
   const allowed = new Set(
     [expectedTotal, hourlyRate].filter((n) => Number.isFinite(n) && n > 0).map(normalizeMoney)
   );
@@ -113,16 +125,17 @@ export function checkPostText(post, {
     const value = normalizeMoney(parseMoneyToken(match[1]));
     if (value === null) continue;
     if (allowed.size === 0) {
-      errors.push(`승인된 강사료가 없는데 본문에 금액이 있습니다: ${match[1]}`);
+      warnings.push(`승인된 강사료가 없는데 본문에 금액이 있습니다: ${match[1]}`);
     } else if (!allowed.has(value)) {
-      errors.push(
-        `승인한 강사료와 다른 금액이 본문에 있습니다: ${match[1]}. `
-        + '원문의 고객사 예산을 그대로 옮겨 적지 않았는지 확인하세요.'
+      // 교통비·부대비용처럼 정당한 금액일 수 있다. 막지 않고 눈에만 띄게 한다.
+      warnings.push(
+        `강사료 외의 금액이 본문에 있습니다: ${match[1]}. `
+        + '원문의 고객사 예산을 옮겨 적은 것은 아닌지 확인하세요.'
       );
     }
   }
 
-  return { errors, postable: errors.length === 0 };
+  return { errors, warnings, postable: errors.length === 0 };
 }
 
 function parseMoneyToken(token) {
