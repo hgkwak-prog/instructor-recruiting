@@ -11,7 +11,7 @@
 
 ---
 
-## 지금 상태 — P0 완료
+## 지금 상태 — P3 완료
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
@@ -28,7 +28,7 @@
 
 ```bash
 npm install
-npm test           # 156개
+npm test           # 221개
 npm run check      # 구문 검사
 npm run core:deps  # core/ 의존성 0 검사
 ```
@@ -131,7 +131,7 @@ mv data/recruitment.sqlite data/recruitment.trial.sqlite   # 지우지 말고 �
 `approve` / `reject` / `mark-complete` / `outcome` / `sync`를 치면 "Slack에서 합니다"라고
 답하고 종료 코드 2로 끝난다. 빠뜨린 게 아니라 뺀 것이다 — 공개 승인 지점이 둘이 되면
 같은 행의 상태를 두 곳에서 바꾸게 되고, 그 경합은 나중에 재현하기 어려운 버그가 된다.
-승인은 Slack 버튼 하나로 간다(설계서 §6.4). P3에서 붙는다.
+승인은 Slack 버튼 하나로 간다(설계서 §6.4).
 
 의존성은 `@anthropic-ai/claude-agent-sdk` 하나뿐이고, `core/`는 여전히 0개다.
 
@@ -171,7 +171,8 @@ Team 플랜은 usage credits가 켜져 있으면 초과분이 API 요율로 과�
 ### 토큰은 1년 뒤 조용히 죽는다
 
 만료 경고는 `/login` 자격증명에만 뜨고 `CLAUDE_CODE_OAUTH_TOKEN`에는 안 뜬다.
-발급일을 적어 두고 11개월 시점에 재발급한다. (P3에서 `/readyz`에 잔여일 체크를 넣는다.)
+발급일(`CLAUDE_CODE_OAUTH_TOKEN_ISSUED_AT`)을 적어 두면 `/readyz`가 남은 날짜를 알려준다.
+11개월 시점에 재발급한다.
 
 ---
 
@@ -248,13 +249,20 @@ core/       외부 I/O 없음, 의존성 0, 테스트 대상 전부
   report      HTML 검토 리포트
   paths       데이터 디렉터리
 
-adapters/   외부 I/O. 여기만 의존성을 가진다
-  llm/claude-cli.mjs   ← P1에서 claude-agent.mjs로 교체
-  store/database.mjs   node:sqlite
-  documents/files.mjs  ← P1에서 pdf-parse로 교체 (현재 pdftotext)
-  sheets/, reminders.mjs
+  compensation  강사료 줄 조립 (단가 × 시수)
+  publish-guard 게시 직전 검사 — 미완성은 막고 나머지는 알린다
 
-apps/       (P1~) bot.mjs / cli.mjs / careerday-runner.mjs
+adapters/   외부 I/O. 여기만 의존성을 가진다
+  llm/          claude-agent(Agent SDK) · prompt · guards(인증·한도·직렬화)
+  slack/        intake · preview · edit-modal · reminder
+  store/        database.mjs (node:sqlite)
+  publisher/    slack 게시 / clipboard 후퇴 경로
+  documents/    files.mjs (pdf-parse)
+  server/       health.mjs (/healthz, /readyz)
+  reminder-config.mjs
+  sheets/       아직 아무도 부르지 않는다. P4에서 성과 기록용으로 붙인다
+
+apps/       bot.mjs (Slack 상주) · cli.mjs (운영자)
 skills/jd-writer/SKILL.md   `## Rules` 이하가 프롬프트에 주입되는 규칙 원본
 schemas/    scripts/gen-schema.mjs로 생성 — 손으로 고치지 않는다
 ```
