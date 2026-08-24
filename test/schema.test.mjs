@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validate, factKeys, unknownKeywords } from '../core/schema.mjs';
-import { readSkillRules, buildPrompt } from '../adapters/llm/claude-cli.mjs';
+import { readSkillRules, buildPrompt } from '../adapters/llm/prompt.mjs';
 import { baseResult, fact } from './fixtures.mjs';
 
 const projectRoot = join(import.meta.dirname, '..');
@@ -82,10 +82,10 @@ test('the shipped schema carries no $schema key', () => {
   assert.ok(!Object.hasOwn(schema, '$schema'));
 });
 
-test('toCliSchema strips $schema even if it is reintroduced', async () => {
-  const { toCliSchema } = await import('../adapters/llm/claude-cli.mjs');
+test('stripMetaSchema strips $schema even if it is reintroduced', async () => {
+  const { stripMetaSchema } = await import('../adapters/llm/prompt.mjs');
   const withMeta = JSON.stringify({ $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object' });
-  const stripped = JSON.parse(toCliSchema(withMeta));
+  const stripped = stripMetaSchema(withMeta);
   assert.ok(!Object.hasOwn(stripped, '$schema'));
   assert.equal(stripped.type, 'object');
 });

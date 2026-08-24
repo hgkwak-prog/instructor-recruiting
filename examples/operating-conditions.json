@@ -1,0 +1,13 @@
+{
+  "instructorRole": "보조강사",
+  "customerDisclosure": "hidden",
+  "customerLabel": "A사",
+  "location": "서울시 내 교육장",
+  "headcount": 1,
+  "dailySchedule": "10:00-17:00",
+  "workingHours": "09:30-17:30",
+  "travelExpenseIncluded": false,
+  "applicationMethod": "edu-recruit@modulabs.co.kr으로 이력서 회신",
+  "deadline": "2026-08-25",
+  "deadlineTime": "18:00"
+}
