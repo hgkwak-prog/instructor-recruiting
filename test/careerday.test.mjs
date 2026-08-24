@@ -17,6 +17,7 @@ function facts(overrides = {}) {
     sessionDates: fact(['2026-09-15', '2026-09-01', '2026-09-08']),
     headcount: fact(1),
     deadline: fact('2026-08-25'),
+    totalHours: fact(21),
     topics: fact(['Claude Code 활용', 'MCP 연동', 'Agentic Coding']),
     ...overrides
   };
@@ -44,8 +45,30 @@ test('날짜는 문자열을 되읽지 않고 sessionDates에서 온다', () => 
 test('보상금은 담당자가 승인한 강사료다', () => {
   const result = draft();
   assert.equal(result.compensation.totalAmount, 2_100_000);
-  assert.equal(result.compensation.count, 3, '회차 수가 보상 기간이 됩니다');
+});
+
+test('커리어데이가 권하는 시간 단위를 1순위로 쓴다', () => {
+  // 화면이 직접 권한다: "1개월에 300,000원"보다 "12시간에 300,000원".
+  // 우리는 확정 시수를 갖고 있으니 그 권고에 정확히 맞출 수 있다.
+  const result = draft();
+  assert.equal(result.compensation.unit, '시간');
+  assert.equal(result.compensation.count, 21);
+});
+
+test('단위 후보는 횟수와 짝으로 준비된다', () => {
+  // 단위만 갈아끼우고 숫자를 두면 21개월이 된다. 짝으로 움직여야 한다.
+  const candidates = draft().compensation.unitCandidates;
+  assert.deepEqual(candidates, [
+    { unit: '시간', count: 21 },
+    { unit: '일', count: 3 },
+    { unit: '개월', count: 1 }
+  ]);
+});
+
+test('총 시수를 모르면 일 단위로 내려간다', () => {
+  const result = draft({ facts: facts({ totalHours: fact(null) }) });
   assert.equal(result.compensation.unit, '일');
+  assert.equal(result.compensation.count, 3);
 });
 
 test('facts에 금액 필드가 없으므로 고객사 예산이 흘러들 경로가 없다', () => {
@@ -78,11 +101,14 @@ test('상세주소는 담당자 입력값이지 facts가 아니다', () => {
   assert.equal(result.region, '서울');
 });
 
-test('상세주소를 안 넣으면 빠진 값으로 잡힌다 — 조용히 통과시키지 않는다', () => {
+test('상세주소가 없어도 폼은 열린다 — 커리어데이에서 (선택)이다', () => {
+  // 2026-08-24 화면 확인: `상세 주소 입력하기 (선택)` 링크를 눌러야 나타나고
+  // 자동입력 대상도 아니다. 필수로 걸면 있지도 않은 값 때문에 폼이 안 열린다.
   const result = buildCareerdayDraft({
     runId: 'r', facts: facts(), jobPost, compensation, publishingInput: {}
   });
-  assert.ok(result.missingFields.some((m) => m.field === 'detailedAddress'));
+  assert.ok(!result.missingFields.some((m) => m.field === 'detailedAddress'));
+  assert.doesNotThrow(() => buildCareerdayFormPlan(result));
 });
 
 test('업무 지역을 커리어데이 어휘로 맞춘다', () => {
@@ -118,7 +144,6 @@ test('빠진 값은 목록으로 돌려준다 — 모달에서 채우면 된다'
   const missing = result.missingFields.map((m) => m.field);
   assert.ok(missing.includes('recruitmentDeadline'));
   assert.ok(missing.includes('headcount'));
-  assert.ok(missing.includes('detailedAddress'));
 });
 
 // --- 태그 --------------------------------------------------------------------
@@ -142,14 +167,14 @@ test('폼 계획은 문자열로 바꾼다', () => {
   const plan = buildCareerdayFormPlan(draft());
   assert.equal(plan.headcount, '1');
   assert.equal(plan.compensation.totalAmount, '2100000');
-  assert.equal(plan.compensation.count, '3');
+  assert.equal(plan.compensation.count, '21');
   assert.equal(plan.vatIncluded, undefined);
   assert.equal(plan.compensation.vatIncluded, false);
 });
 
 test('빠진 값이 있으면 폼을 열지 않는다', () => {
   const incomplete = buildCareerdayDraft({
-    runId: 'r', facts: facts(), jobPost, compensation, publishingInput: {}
+    runId: 'r', facts: facts({ headcount: fact(null) }), jobPost, compensation, publishingInput
   });
-  assert.throws(() => buildCareerdayFormPlan(incomplete), /상세 주소/);
+  assert.throws(() => buildCareerdayFormPlan(incomplete), /모집 인원/);
 });

@@ -13,7 +13,7 @@
  * | 값 | 어디서 오나 |
  * |---|---|
  * | 보상금 | 담당자가 승인 화면에서 입력한 **강사 제시 금액** (`compensation`) |
- * | 상세주소 | 담당자가 커리어데이 단계에서 따로 입력 (`publishingInput.venueAddress`) |
+ * | 상세주소 | 담당자 입력. 다만 **필수가 아니다** — 폼에서도 `상세 주소 입력하기 (선택)` 링크를 눌러야 나타나고, 자동입력 대상도 아니다 (2026-08-24 화면 확인) |
  *
  * 커리큘럼 원문의 금액은 **고객사 예산**이고 여기 들어올 경로가 없다.
  * facts에 금액 필드 자체가 없다.
@@ -86,7 +86,7 @@ export function buildCareerdayDraft({
     // 슬랙 공고에는 시·군·구까지만 나가지만 커리어데이 폼은 상세주소를 받는다.
     // 담당자가 이 단계에서 직접 넣는다. facts에서 끌어오지 않는다.
     detailedAddress: publishingInput.venueAddress ?? null,
-    compensation: buildReward({ compensation, sessionCount: dates.length }),
+    compensation: buildReward({ compensation, sessionCount: dates.length, totalHours: value('totalHours') }),
     // 주제 키워드가 그대로 태그다. 교육명에서 단어를 주워 담던 옛 방식보다 정확하다.
     tags: buildTags({ role: value('role'), topics: value('topics') })
   };
@@ -94,15 +94,33 @@ export function buildCareerdayDraft({
   return validateCareerdayDraft(draft);
 }
 
-function buildReward({ compensation, sessionCount }) {
-  if (!compensation?.total) {
-    return { scheme: '기간별', count: sessionCount || null, unit: '일', totalAmount: null, vatIncluded: false };
+/**
+ * 보상금. **단위 후보를 순서대로 준비한다.**
+ *
+ * 커리어데이 화면이 직접 권한다: *"1개월에 300,000원"보다 "12시간에 300,000원"으로
+ * 표기를 권장합니다. 총 사용시간을 나타낼 때 지원율이 가장 높습니다."*
+ * 우리는 확정된 총 시수를 갖고 있으니 그 권고에 정확히 맞출 수 있다.
+ *
+ * 다만 드롭다운에 어떤 단위가 있는지는 화면마다 다를 수 있어, 어댑터가 실제
+ * 옵션과 맞는 첫 후보를 고른다. **단위가 바뀌면 횟수도 함께 바뀌어야** 하므로
+ * (21시간 ↔ 3일) 짝으로 준비한다. 숫자만 남기고 단위를 갈아끼우면 뜻이 달라진다.
+ */
+function buildReward({ compensation, sessionCount, totalHours }) {
+  const total = compensation?.total ?? null;
+  const candidates = [];
+  if (Number.isFinite(totalHours) && totalHours > 0) {
+    candidates.push({ unit: '시간', count: totalHours });
   }
+  if (sessionCount > 0) candidates.push({ unit: '일', count: sessionCount });
+  candidates.push({ unit: '개월', count: 1 });
+
   return {
     scheme: '기간별',
-    count: sessionCount || null,
-    unit: '일',
-    totalAmount: compensation.total,
+    unit: candidates[0].unit,
+    count: candidates[0].count,
+    // 어댑터가 실제 드롭다운과 대조해 고른다.
+    unitCandidates: candidates,
+    totalAmount: total,
     // 강사료는 원천징수 대상이지 부가세 대상이 아니다. 기본은 미포함.
     vatIncluded: false
   };
@@ -151,8 +169,10 @@ export function validateCareerdayDraft(draft) {
     workStartDate: '예상 업무 시작일',
     workEndDate: '예상 업무 종료일',
     headcount: '모집 인원',
-    region: '업무 지역',
-    detailedAddress: '상세 주소'
+    region: '업무 지역'
+    // 상세주소는 넣지 않는다. 커리어데이 폼에서 (선택)이고, 링크를 눌러야
+    // 나타나며, 자동입력도 하지 않는다. 필수로 걸면 있지도 않은 값 때문에
+    // 폼이 안 열린다.
   };
   for (const [field, label] of Object.entries(required)) {
     if (draft[field] === null || draft[field] === '') missingFields.push({ field, label });
@@ -190,6 +210,7 @@ export function buildCareerdayFormPlan(draft) {
       scheme: validated.compensation.scheme,
       count: String(validated.compensation.count),
       unit: validated.compensation.unit,
+      unitCandidates: validated.compensation.unitCandidates ?? [],
       totalAmount: String(validated.compensation.totalAmount),
       vatIncluded: Boolean(validated.compensation.vatIncluded)
     },

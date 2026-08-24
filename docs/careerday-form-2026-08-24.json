@@ -1,0 +1,258 @@
+[
+  {
+    "tag": "select",
+    "type": null,
+    "name": "category",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "text",
+    "name": "title",
+    "placeholder": "프로젝트의 제목을 입력해주세요",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "select",
+    "type": null,
+    "name": null,
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "div",
+    "type": null,
+    "name": null,
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": "true"
+  },
+  {
+    "tag": "input",
+    "type": "text",
+    "name": null,
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "textarea",
+    "type": null,
+    "name": null,
+    "placeholder": "사전 질문을 입력해주세요. Enter를 눌러 줄바꿈 할 수 있습니다.",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "textarea",
+    "type": null,
+    "name": null,
+    "placeholder": "추가 안내가 있다면 간단히 적어주세요. 예: 500자 이내로 작성해주세요.",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "file",
+    "name": "file",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "radio",
+    "name": "allTime",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "date",
+    "name": "date",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "year",
+    "placeholder": "----",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "month",
+    "placeholder": "--",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "day",
+    "placeholder": "--",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "requiredHeadCount",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "date",
+    "name": "daterange_from",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "year",
+    "placeholder": "----",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "month",
+    "placeholder": "--",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "day",
+    "placeholder": "--",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "date",
+    "name": "daterange_to",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "year",
+    "placeholder": "----",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "month",
+    "placeholder": "--",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "day",
+    "placeholder": "--",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "text",
+    "name": null,
+    "placeholder": "근무 지역을 선택해주세요.",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "select",
+    "type": null,
+    "name": "rewardType",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "checkbox",
+    "name": null,
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "number",
+    "name": "periodReward.num",
+    "placeholder": "1",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "select",
+    "type": null,
+    "name": "periodReward.type",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "checkbox",
+    "name": "vatIncluded",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "text",
+    "name": "periodReward.reward",
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "input",
+    "type": "text",
+    "name": null,
+    "placeholder": "커스텀 태그를 입력하세요...",
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "select",
+    "type": null,
+    "name": null,
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  },
+  {
+    "tag": "textarea",
+    "type": null,
+    "name": null,
+    "placeholder": null,
+    "ariaLabel": null,
+    "contentEditable": null
+  }
+]
