@@ -125,7 +125,11 @@ export async function invokeOnce({
   return {
     value: result.structured_output,
     usage: {
-      costUsd: result.total_cost_usd ?? null,
+      // 청구액이 아니다. SDK 타입 정의가 "An estimate, not a billing statement"라고
+      // 못 박아 둔 값으로, 이번 호출이 쓴 토큰을 API 표준 요율로 환산한 추정치다.
+      // 구독 인증으로 도는 한 실제로 빠지는 것은 달러가 아니라 구독 사용 한도다.
+      // 토큰 소비량의 대리 지표로만 쓴다.
+      estimatedCostUsd: result.total_cost_usd ?? null,
       turns: result.num_turns ?? null,
       models: result.modelUsage ?? null
     }

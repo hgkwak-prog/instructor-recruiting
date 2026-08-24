@@ -184,10 +184,14 @@ test('성공하면 두 번 부르지 않는다', async () => {
   assert.equal(query.calls.length, 1);
 });
 
-test('사용량을 돌려준다 — 실측해서 모델을 정하려면 필요하다', async () => {
+test('사용량을 돌려준다 — 토큰 소비량을 견주려면 필요하다', async () => {
   const query = fakeQuery([baseResult()]);
   const { usages } = await extractFacts({ prompt: 'p', schema, query });
-  assert.equal(usages[0].costUsd, 0.012);
+  // 이름이 estimatedCostUsd인 것이 핵심이다. 구독 인증에서 이 값은 청구액이 아니라
+  // API 요율 환산 추정치이고, 실제로 빠지는 것은 달러가 아니라 구독 사용 한도다.
+  // costUsd라고 부르면 읽는 사람이 청구서로 오해한다.
+  assert.equal(usages[0].estimatedCostUsd, 0.012);
+  assert.ok(!Object.hasOwn(usages[0], 'costUsd'));
   assert.equal(usages[0].turns, 1);
 });
 
