@@ -43,7 +43,9 @@ test('an old database gains the missing columns instead of failing on insert', (
 
   assert.deepEqual(db.migrationReport.addedColumns, [
     'role', 'job_post', 'postable', 'reviewed_at', 'reviewed_by', 'review_note',
-    'slack_applicants', 'careerday_posted_at', 'careerday_applicants', 'final_channel'
+    'slack_applicants', 'careerday_posted_at', 'careerday_applicants', 'final_channel',
+    // P3에서 Slack 인테이크·게시가 붙으며 늘어난 것들
+    'created_by_user_id', 'slack_channel_id', 'slack_message_ts', 'slack_permalink'
   ]);
 
   createRun(db, {
@@ -80,7 +82,7 @@ test('a migrated row cannot be approved -- it was built under the old contract',
 test('migration is idempotent', () => {
   const path = legacyDatabase();
   const first = openDatabase(path);
-  assert.equal(first.migrationReport.addedColumns.length, 10);
+  assert.equal(first.migrationReport.addedColumns.length, 14);
   first.close();
 
   const second = openDatabase(path);

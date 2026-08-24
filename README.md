@@ -18,7 +18,8 @@
 | **P0** | 뼈대 + `core/` 이관 + 테스트 120개 | ✅ 2026-08-24 |
 | **P1** | Claude Agent SDK로 모델 호출 교체 (구독 인증) | ✅ 2026-08-24 · 실호출 검증 완료 |
 | **P2** | `apps/cli.mjs` — 커리큘럼 → 검토 리포트까지 돌아감 | ✅ 2026-08-24 |
-| P3 | Slack 인테이크·승인·게시 | 대기 |
+| **P3** | Slack 인테이크·승인·게시 | ✅ 코드 완료 · **실 워크스페이스 검증 대기** |
+| P3c | 3영업일 현황 확인 알림 | 대기 |
 | P4 | Notion·시트·커리어데이 + 게시 프로파일 | 대기 |
 | P5 | Docker 배포 | 대기 |
 
@@ -53,8 +54,48 @@ npm run recruit -- show --run-id <id>
 `generate`가 끝나면 `data/reports/<run-id>.html`이 나온다. 브라우저로 열면 확인된 사실,
 누락 항목, 경고, 완성된 공고를 한 화면에서 보고 복사할 수 있다.
 
-**PDF 입력에는 `pdftotext`(poppler)가 필요하다.** `.txt`, `.md`는 그냥 된다.
-(P3에서 Slack PDF 인테이크를 붙이며 `pdf-parse`로 바꿔 이 의존성을 없앤다.)
+PDF·TXT·MD를 받는다. PDF는 `pdf-parse`로 읽으므로 **시스템에 따로 설치할 것이 없다.**
+
+## Slack 봇
+
+```bash
+cp .env.example .env    # 토큰과 채널을 채운다
+npm run bot
+```
+
+DM으로 커리큘럼 파일을 보내면 → 사실 추출 → 공고 조립 → 검토 미리보기가 오고,
+[승인하고 게시]를 누르면 봇이 채널에 올린다.
+
+### 부팅 배너를 반드시 확인할 것
+
+테스트 워크스페이스와 실제 워크스페이스의 설정이 두 벌 존재하게 된다.
+그래서 뜰 때 **어디에 쏠 것인지** 크게 찍는다.
+
+```
+┌────────────────────────────────────────────────
+│ 워크스페이스 : 모두의연구소 (T0123ABCD)
+│ 봇          : @recruiting-bot
+│ 게시 채널   : #강사구인 (C09CFRJLE7Q)
+│ 게시 모드   : slack (실제 게시)
+└────────────────────────────────────────────────
+```
+
+봇이 채널에 없으면 `← 봇이 채널에 없습니다!`가 붙는다. 게시 직전이 아니라
+**부팅 때** 알려주는 것이 요점이다.
+
+`PUBLISH_MODE=clipboard`로 두면 글을 쏘지 않고 흐름만 끝까지 돈다.
+새 워크스페이스에서 처음 돌릴 때 이걸로 한 번 확인하고 `slack`으로 바꾸는 편이 안전하다.
+
+### Slack 앱에 필요한 설정
+
+| 항목 | 값 |
+|---|---|
+| Socket Mode | 켬 → App-Level Token (`connections:write`) = `SLACK_APP_TOKEN` |
+| Bot Token Scopes | `chat:write`, `files:read`, `im:history`, `im:write`, `channels:read`, `groups:read` |
+| Event Subscriptions | `message.im` |
+| Interactivity | 켬 (버튼·채널 선택이 여기로 온다) |
+
+게시할 채널에 **봇을 초대**해야 한다(`/invite @봇이름`). 비공개 채널이면 `groups:read`도 필요하다.
 
 ### 승인 명령이 없는 이유
 

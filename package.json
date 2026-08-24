@@ -8,13 +8,16 @@
     "node": ">=24"
   },
   "scripts": {
-    "check": "node --check adapters/documents/files.mjs && node --check adapters/llm/claude-agent.mjs && node --check adapters/llm/guards.mjs && node --check adapters/llm/prompt.mjs && node --check adapters/reminders.mjs && node --check adapters/sheets/sheets.mjs && node --check adapters/store/database.mjs && node --check apps/cli.mjs && node --check core/conditions.mjs && node --check core/dates.mjs && node --check core/derive.mjs && node --check core/paths.mjs && node --check core/render/job-post.mjs && node --check core/report.mjs && node --check core/schema.mjs && node --check core/verify.mjs && node --check scripts/check-core-deps.mjs && node --check scripts/gen-schema.mjs",
+    "check": "node --check adapters/documents/files.mjs && node --check adapters/llm/claude-agent.mjs && node --check adapters/llm/guards.mjs && node --check adapters/llm/prompt.mjs && node --check adapters/publisher/index.mjs && node --check adapters/reminders.mjs && node --check adapters/server/health.mjs && node --check adapters/sheets/sheets.mjs && node --check adapters/slack/intake.mjs && node --check adapters/slack/preview.mjs && node --check adapters/store/database.mjs && node --check apps/bot.mjs && node --check apps/cli.mjs && node --check core/conditions.mjs && node --check core/dates.mjs && node --check core/derive.mjs && node --check core/paths.mjs && node --check core/render/job-post.mjs && node --check core/report.mjs && node --check core/schema.mjs && node --check core/verify.mjs && node --check scripts/check-core-deps.mjs && node --check scripts/gen-schema.mjs",
     "test": "node --test test/*.test.mjs",
     "core:deps": "node scripts/check-core-deps.mjs",
-    "compare:extractors": "node scripts/compare-extractors.mjs",
-    "recruit": "node apps/cli.mjs"
+    "recruit": "node apps/cli.mjs",
+    "bot": "node apps/bot.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.241"
+    "@anthropic-ai/claude-agent-sdk": "^0.3.241",
+    "@slack/bolt": "^5.0.0",
+    "dotenv": "^17.4.2",
+    "pdf-parse": "^2.4.5"
   }
 }

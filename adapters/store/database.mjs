@@ -57,7 +57,13 @@ const COLUMNS = [
   { name: 'slack_applicants', type: 'INTEGER' },
   { name: 'careerday_posted_at', type: 'TEXT' },
   { name: 'careerday_applicants', type: 'INTEGER' },
-  { name: 'final_channel', type: 'TEXT' }
+  { name: 'final_channel', type: 'TEXT' },
+  // P3: Slack이 인테이크와 게시를 맡으면서 생긴 것들.
+  // `created_by_user_id`는 커리큘럼을 던진 사람이고, 3영업일 뒤 알림을 받을 사람이다.
+  { name: 'created_by_user_id', type: 'TEXT' },
+  { name: 'slack_channel_id', type: 'TEXT' },
+  { name: 'slack_message_ts', type: 'TEXT' },
+  { name: 'slack_permalink', type: 'TEXT' }
 ];
 
 /** v0.2 called the pre-posting state `generated`; it is now `review_pending`. */
@@ -109,12 +115,14 @@ export function openDatabase(path) {
 
 export function createRun(db, run) {
   db.prepare(`INSERT INTO recruitment_runs
-    (id, source_path, course_title, role, status, result_json, job_post, postable, generated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    (id, source_path, course_title, role, status, result_json, job_post, postable, generated_at,
+     created_by_user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
       run.id, run.sourcePath, run.courseTitle ?? null, run.role ?? null,
       STATUS.REVIEW_PENDING, JSON.stringify(run.result), run.jobPost,
-      run.postable ? 1 : 0, run.generatedAt
+      run.postable ? 1 : 0, run.generatedAt,
+      run.createdByUserId ?? null
     );
 }
 
@@ -150,11 +158,28 @@ export function reviewRun(db, { id, decision, reviewer, note, reviewedAt }) {
   return getRun(db, id);
 }
 
-export function completeRun(db, { id, completedAt, followUpDueAt, sheetsRecordedAt }) {
+/**
+ * 게시 완료를 기록한다.
+ *
+ * `WHERE status = APPROVED`가 핵심이다. 승인되지 않은 건은 이 문장이 0행을 바꾸고
+ * 예외로 끝난다 — 게시 경로가 승인 게이트를 우회할 수 없다는 뜻이다.
+ * 같은 이유로 두 번 눌러도 두 번째는 실패한다(멱등이 아니라 단일 실행).
+ */
+export function completeRun(db, {
+  id, completedAt, followUpDueAt, sheetsRecordedAt = null,
+  slackChannelId = null, slackMessageTs = null, slackPermalink = null
+}) {
   const { changes } = db.prepare(`UPDATE recruitment_runs
-    SET status = ?, completed_at = ?, follow_up_due_at = ?, sheets_recorded_at = ?
+    SET status = ?, completed_at = ?, follow_up_due_at = ?, sheets_recorded_at = ?,
+        slack_channel_id = COALESCE(?, slack_channel_id),
+        slack_message_ts = COALESCE(?, slack_message_ts),
+        slack_permalink  = COALESCE(?, slack_permalink)
     WHERE id = ? AND status = ?`)
-    .run(STATUS.COMPLETED, completedAt, followUpDueAt, sheetsRecordedAt, id, STATUS.APPROVED);
+    .run(
+      STATUS.COMPLETED, completedAt, followUpDueAt, sheetsRecordedAt,
+      slackChannelId, slackMessageTs, slackPermalink,
+      id, STATUS.APPROVED
+    );
   if (changes === 0) {
     throw new Error(`게시 완료 처리에 실패했습니다. 승인된 건만 처리할 수 있습니다: ${id}`);
   }

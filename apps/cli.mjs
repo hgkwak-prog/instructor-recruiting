@@ -13,7 +13,7 @@ import { writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { openDatabase, createRun, getRun, listRuns, STATUS, STATUS_LABELS } from '../adapters/store/database.mjs';
-import { readSource, readJson } from '../adapters/documents/files.mjs';
+import { readSourceAsync, readJson } from '../adapters/documents/files.mjs';
 import { buildPrompt, writePromptFile } from '../adapters/llm/prompt.mjs';
 import { createExtractor, DEFAULT_MODEL } from '../adapters/llm/claude-agent.mjs';
 import { CallBudget, createSerialQueue } from '../adapters/llm/guards.mjs';
@@ -88,8 +88,8 @@ export async function generate(db, options, context = {}) {
     throw new Error('--source와 --conditions가 필요합니다.');
   }
   const sourcePath = resolve(options.source);
-  const curriculum = readSource(sourcePath);
-  const conditions = readJson(resolve(options.conditions));
+  const curriculum = await readSourceAsync(sourcePath);
+  const conditions = await readJson(resolve(options.conditions));
   const schema = JSON.parse(readFileSync(schemaFile, 'utf8'));
 
   const runId = randomUUID();
