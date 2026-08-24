@@ -226,19 +226,17 @@ export function recordOutcome(db, { id, slackApplicants, careerdayApplicants, fi
 }
 
 /**
- * `sheetsRecorded` splits ownership of the follow-up notification: rows that
- * reached Google Sheets are notified by the Apps Script trigger, rows that never
- * did are the CLI's. Nothing is owned by both, so double notification is
- * impossible.
+ * 알림 보낼 때가 된 건들.
+ *
+ * 예전에는 `sheets_recorded_at`으로 알림 소유자를 시트(Apps Script 이메일)와
+ * 로컬로 갈랐다. 이제 상주 봇이 알림을 전담하므로 그 분기를 없앴다 —
+ * **Apps Script의 시간 트리거는 꺼야 한다.** 켜 두면 두 번 간다.
+ *
+ * `follow_up_sent_at IS NULL`이 중복 발송을 막는 유일한 조건이다.
  */
-export function dueRuns(db, today, { sheetsRecorded = null } = {}) {
-  const filter = sheetsRecorded === null
-    ? ''
-    : sheetsRecorded
-      ? 'AND sheets_recorded_at IS NOT NULL'
-      : 'AND sheets_recorded_at IS NULL';
+export function dueRuns(db, today) {
   return db.prepare(`SELECT * FROM recruitment_runs
-    WHERE status = ? AND follow_up_due_at <= ? AND follow_up_sent_at IS NULL ${filter}
+    WHERE status = ? AND follow_up_due_at <= ? AND follow_up_sent_at IS NULL
     ORDER BY follow_up_due_at ASC`).all(STATUS.COMPLETED, today);
 }
 

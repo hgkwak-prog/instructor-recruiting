@@ -17,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { App, LogLevel, SocketModeReceiver } from '@slack/bolt';
 
 import {
-  openDatabase, createRun, getRun, reviewRun, completeRun, updateDraft, STATUS
+  openDatabase, createRun, getRun, reviewRun, completeRun, updateDraft,
+  dueRuns, markFollowUpSent, recordOutcome, STATUS
 } from '../adapters/store/database.mjs';
 import { readSlackFile, rejectionMessage, shouldIntake } from '../adapters/slack/intake.mjs';
 import {
@@ -31,6 +32,11 @@ import {
   CompensationError, applyCompensationLine, buildCompensationLine
 } from '../core/compensation.mjs';
 import { checkPostText } from '../core/publish-guard.mjs';
+import {
+  OUTCOME_ACTION, OUTCOME_MODAL, buildOutcomeModal, buildOutcomeRecordedMessage,
+  dispatchReminders, parseOutcomeModal
+} from '../adapters/slack/reminder.mjs';
+import { readReminderConfig } from '../adapters/reminder-config.mjs';
 import { createPublisher } from '../adapters/publisher/index.mjs';
 import { buildPrompt, writePromptFile } from '../adapters/llm/prompt.mjs';
 import { createExtractor, DEFAULT_MODEL } from '../adapters/llm/claude-agent.mjs';
@@ -39,7 +45,7 @@ import { startHealthServer, tokenDaysRemaining } from '../adapters/server/health
 import { verifyResult } from '../core/verify.mjs';
 import { applyConditions } from '../core/conditions.mjs';
 import { buildReport } from '../core/report.mjs';
-import { businessDaysAfter, localDateKey } from '../core/dates.mjs';
+import { businessDaysAfter, calendarDaysAfter, localDateKey } from '../core/dates.mjs';
 import { ensureDataDirectories } from '../core/paths.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
@@ -118,6 +124,14 @@ function previewFor(run, { defaultChannel, warnings = [] }) {
   };
 }
 
+/** 설정에 따라 영업일/달력일로 확인 예정일을 잡는다. */
+function dueDateFrom(completedAt, { waitDays, dayMode, timeZone }) {
+  const today = localDateKey(new Date(completedAt), timeZone);
+  return dayMode === 'calendar'
+    ? calendarDaysAfter(today, waitDays, timeZone)
+    : businessDaysAfter(today, waitDays, timeZone);
+}
+
 function readConditions() {
   const path = process.env.RECRUIT_CONDITIONS_PATH;
   if (!path) return {};
@@ -134,6 +148,7 @@ async function main() {
 
   const db = openDatabase(join(dataDirectory, 'recruitment.sqlite'));
   const conditions = readConditions();
+  const reminderConfig = readReminderConfig();
   const defaultChannel = process.env.SLACK_CHANNEL_ID?.trim() || null;
 
   const receiver = new SocketModeReceiver({
@@ -349,7 +364,7 @@ async function main() {
       completeRun(db, {
         id: runId,
         completedAt,
-        followUpDueAt: businessDaysAfter(localDateKey(new Date(completedAt)), 3),
+        followUpDueAt: dueDateFrom(completedAt, reminderConfig),
         slackChannelId: posted.channel,
         slackMessageTs: posted.messageTs,
         slackPermalink: posted.permalink
@@ -392,6 +407,67 @@ async function main() {
     }
   });
 
+  // --- 3영업일 현황 확인 ------------------------------------------------------
+  app.action(OUTCOME_ACTION, async ({ ack, body, action, client, logger }) => {
+    await ack();
+    try {
+      const run = getRun(db, action.value);
+      if (!run) throw new Error(`작업을 찾을 수 없습니다: ${action.value}`);
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: {
+          ...buildOutcomeModal({ run }),
+          private_metadata: JSON.stringify({
+            runId: run.id, channel: body.channel.id, ts: body.message.ts
+          })
+        }
+      });
+    } catch (error) {
+      logger.error(error);
+    }
+  });
+
+  app.view(OUTCOME_MODAL, async ({ ack, view, client, logger }) => {
+    await ack();
+    const { runId, slackApplicants, finalChannel } = parseOutcomeModal(view);
+    const { channel, ts } = JSON.parse(view.private_metadata);
+    try {
+      recordOutcome(db, { id: runId, slackApplicants, finalChannel });
+      const run = getRun(db, runId);
+      await client.chat.update({
+        channel, ts, ...buildOutcomeRecordedMessage({ run, slackApplicants, finalChannel })
+      });
+    } catch (error) {
+      logger.error(error);
+      await client.chat.postMessage({ channel, thread_ts: ts, text: `기록에 실패했습니다: ${error.message}` });
+    }
+  });
+
+  const reminderTimer = setInterval(async () => {
+    try {
+      const sent = await dispatchReminders({
+        db,
+        today: localDateKey(new Date(), reminderConfig.timeZone),
+        waitDays: reminderConfig.waitDays,
+        dueRuns,
+        markFollowUpSent,
+        send: async ({ userId, message }) => {
+          // DM 채널을 열어야 사람에게 직접 간다. 게시 채널에 쓰면 소음이 된다.
+          const opened = await app.client.conversations.open({ users: userId });
+          await app.client.chat.postMessage({ channel: opened.channel.id, ...message });
+        }
+      });
+      if (sent.length > 0) console.log(`현황 확인 알림 ${sent.length}건 발송`);
+    } catch (error) {
+      console.error(`알림 주기 실행 실패: ${error.message}`);
+    }
+  }, reminderConfig.pollMs);
+  reminderTimer.unref?.();
+  console.log(
+    `현황 확인: ${reminderConfig.waitDays}${reminderConfig.dayMode === 'calendar' ? '일' : '영업일'} 후, `
+    + `${reminderConfig.pollMs / 60000}분마다 확인`
+  );
+
   // --- 상태 확인과 정상 종료 --------------------------------------------------
   let shuttingDown = false;
   const health = startHealthServer({
@@ -407,6 +483,7 @@ async function main() {
     process.on(signal, async () => {
       shuttingDown = true;
       console.log(`\n${signal} — 종료합니다.`);
+      clearInterval(reminderTimer);
       health.close();
       await app.stop().catch(() => {});
       db.close?.();
