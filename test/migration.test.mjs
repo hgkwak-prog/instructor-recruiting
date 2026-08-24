@@ -45,7 +45,9 @@ test('an old database gains the missing columns instead of failing on insert', (
     'role', 'job_post', 'postable', 'reviewed_at', 'reviewed_by', 'review_note',
     'slack_applicants', 'careerday_posted_at', 'careerday_applicants', 'final_channel',
     // P3에서 Slack 인테이크·게시가 붙으며 늘어난 것들
-    'created_by_user_id', 'slack_channel_id', 'slack_message_ts', 'slack_permalink'
+    'created_by_user_id', 'slack_channel_id', 'slack_message_ts', 'slack_permalink',
+    // 본문 자유 편집을 열면서: 코드가 조립한 원본과 확정된 강사료
+    'job_post_generated', 'compensation_json'
   ]);
 
   createRun(db, {
@@ -82,7 +84,7 @@ test('a migrated row cannot be approved -- it was built under the old contract',
 test('migration is idempotent', () => {
   const path = legacyDatabase();
   const first = openDatabase(path);
-  assert.equal(first.migrationReport.addedColumns.length, 14);
+  assert.equal(first.migrationReport.addedColumns.length, 16);
   first.close();
 
   const second = openDatabase(path);

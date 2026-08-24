@@ -16,12 +16,21 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { App, LogLevel, SocketModeReceiver } from '@slack/bolt';
 
-import { openDatabase, createRun, getRun, reviewRun, completeRun, STATUS } from '../adapters/store/database.mjs';
+import {
+  openDatabase, createRun, getRun, reviewRun, completeRun, updateDraft, STATUS
+} from '../adapters/store/database.mjs';
 import { readSlackFile, rejectionMessage, shouldIntake } from '../adapters/slack/intake.mjs';
 import {
-  APPROVE_ACTION, CHANNEL_SELECT_ACTION, REJECT_ACTION,
+  APPROVE_ACTION, CHANNEL_SELECT_ACTION, EDIT_ACTION, REJECT_ACTION,
   buildPreviewMessage, buildPublishedMessage, buildRejectedMessage, selectedChannelFrom
 } from '../adapters/slack/preview.mjs';
+import {
+  EDIT_MODAL, buildEditModal, modalErrors, parseEditModal
+} from '../adapters/slack/edit-modal.mjs';
+import {
+  CompensationError, applyCompensationLine, buildCompensationLine
+} from '../core/compensation.mjs';
+import { checkPostText } from '../core/publish-guard.mjs';
 import { createPublisher } from '../adapters/publisher/index.mjs';
 import { buildPrompt, writePromptFile } from '../adapters/llm/prompt.mjs';
 import { createExtractor, DEFAULT_MODEL } from '../adapters/llm/claude-agent.mjs';
@@ -73,6 +82,40 @@ async function announceTarget(client, channelId, logger) {
   ].join('\n');
   logger.log(banner);
   return auth;
+}
+
+/**
+ * DB에 저장된 run으로부터 게시 검사와 미리보기를 다시 만든다.
+ * 편집 전후로 같은 함수를 쓴다 — 화면과 검사가 어긋나지 않게 하려면 한 군데여야 한다.
+ */
+function previewFor(run, { defaultChannel, warnings = [] }) {
+  const result = JSON.parse(run.result_json ?? '{}');
+  const facts = result.facts ?? {};
+  const compensation = run.compensation_json ? JSON.parse(run.compensation_json) : null;
+  const publishCheck = checkPostText(run.job_post, {
+    expectedTotal: compensation?.total ?? null,
+    hourlyRate: compensation?.hourlyRate ?? null,
+    customerLabel: facts.customerLabel?.value ?? null,
+    customerHidden: (facts.customerDisclosure?.value ?? 'hidden') !== 'approved',
+    year: Number(facts.sessionDates?.value?.[0]?.slice(0, 4)) || null
+  });
+  return {
+    facts,
+    compensation,
+    publishCheck,
+    message: buildPreviewMessage({
+      runId: run.id,
+      verification: {
+        slackJobPost: run.job_post,
+        pendingMarkers: [],
+        postable: Boolean(run.postable)
+      },
+      warnings,
+      defaultChannel,
+      publishCheck,
+      compensation
+    })
+  };
 }
 
 function readConditions() {
@@ -174,18 +217,100 @@ async function main() {
         createdByUserId: event.user
       });
 
+      const warnings = [...verification.warnings, ...(result.warnings ?? [])];
+      const publishCheck = checkPostText(verification.slackJobPost, {
+        customerLabel: result.facts.customerLabel?.value ?? null,
+        customerHidden: (result.facts.customerDisclosure?.value ?? 'hidden') !== 'approved',
+        year: Number(result.facts.sessionDates?.value?.[0]?.slice(0, 4)) || null
+      });
       await client.chat.postMessage({
         channel: event.channel,
-        ...buildPreviewMessage({
-          runId,
-          verification,
-          warnings: [...verification.warnings, ...(result.warnings ?? [])],
-          defaultChannel
-        })
+        ...buildPreviewMessage({ runId, verification, warnings, defaultChannel, publishCheck })
       });
     } catch (error) {
       logger.error(error);
       await client.chat.postMessage({ channel: event.channel, text: `처리 중 실패했습니다: ${error.message}` });
+    }
+  });
+
+  // --- 편집 모달 -------------------------------------------------------------
+  app.action(EDIT_ACTION, async ({ ack, body, action, client, logger }) => {
+    await ack();
+    try {
+      const run = getRun(db, action.value);
+      if (!run) throw new Error(`작업을 찾을 수 없습니다: ${action.value}`);
+      const facts = JSON.parse(run.result_json ?? '{}').facts ?? {};
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: {
+          ...buildEditModal({
+            runId: run.id,
+            post: run.job_post,
+            totalHours: facts.totalHours?.value ?? null,
+            compensation: run.compensation_json ? JSON.parse(run.compensation_json) : null
+          }),
+          // 반영 후 이 메시지를 갱신해야 하므로 위치를 들고 간다.
+          private_metadata: JSON.stringify({
+            runId: run.id, channel: body.channel.id, ts: body.message.ts
+          })
+        }
+      });
+    } catch (error) {
+      logger.error(error);
+    }
+  });
+
+  app.view(EDIT_MODAL, async ({ ack, body, view, client, logger }) => {
+    const { runId, mode, amount, post } = parseEditModal(view);
+    const { channel, ts } = JSON.parse(view.private_metadata);
+    try {
+      const run = getRun(db, runId);
+      const facts = JSON.parse(run.result_json ?? '{}').facts ?? {};
+
+      // 금액 줄은 코드가 만든다. 사람이 곱하면 틀려도 아무도 모른다.
+      let fee;
+      try {
+        fee = buildCompensationLine({
+          mode,
+          amount,
+          totalHours: facts.totalHours?.value ?? null,
+          roleLabel: facts.role?.value ?? '보조강사',
+          travelExpenseIncluded: Boolean(facts.travelExpenseIncluded?.value)
+        });
+      } catch (error) {
+        if (!(error instanceof CompensationError)) throw error;
+        return ack(modalErrors([], { feeError: error.message }));
+      }
+
+      let merged;
+      try {
+        merged = applyCompensationLine(post, fee.line);
+      } catch (error) {
+        return ack(modalErrors([error.message]));
+      }
+
+      // 손으로 고친 글도 같은 검사를 통과해야 한다.
+      const check = checkPostText(merged, {
+        expectedTotal: fee.total,
+        hourlyRate: fee.hourlyRate,
+        customerLabel: facts.customerLabel?.value ?? null,
+        customerHidden: (facts.customerDisclosure?.value ?? 'hidden') !== 'approved',
+        year: Number(facts.sessionDates?.value?.[0]?.slice(0, 4)) || null
+      });
+      if (!check.postable) return ack(modalErrors(check.errors));
+
+      await ack();
+      const saved = updateDraft(db, {
+        id: runId,
+        jobPost: merged,
+        compensation: { mode, amount, total: fee.total, hourlyRate: fee.hourlyRate, line: fee.line }
+      });
+      const { message } = previewFor(saved, { defaultChannel });
+      await client.chat.update({ channel, ts, ...message });
+    } catch (error) {
+      logger.error(error);
+      await ack();
+      await client.chat.postMessage({ channel, thread_ts: ts, text: `수정에 실패했습니다: ${error.message}` });
     }
   });
 
@@ -198,6 +323,14 @@ async function main() {
     const runId = action.value;
     const approver = body.user.id;
     try {
+      // 나갈 글자 그대로를 마지막으로 한 번 더 본다. 미리보기를 만든 뒤
+      // 무언가 바뀌었을 수 있고, 게시는 되돌릴 수 없다.
+      const pending = getRun(db, runId);
+      const { publishCheck } = previewFor(pending, { defaultChannel });
+      if (!publishCheck.postable) {
+        throw new Error(`게시 검사를 통과하지 못했습니다:\n${publishCheck.errors.map((e) => `• ${e}`).join('\n')}`);
+      }
+
       // 게이트가 여기 있다. postable=0이면 던진다.
       reviewRun(db, {
         id: runId, decision: STATUS.APPROVED, reviewer: approver, reviewedAt: new Date().toISOString()

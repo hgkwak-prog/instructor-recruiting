@@ -8,6 +8,7 @@
  */
 
 export const APPROVE_ACTION = 'recruitment_approve';
+export const EDIT_ACTION = 'recruitment_edit';
 export const REJECT_ACTION = 'recruitment_reject';
 export const CHANNEL_SELECT_ACTION = 'recruitment_target_channel';
 
@@ -29,7 +30,13 @@ function bulletList(items) {
  * @param {string[]} input.warnings
  * @param {string|null} input.defaultChannel  기본 게시 채널
  */
-export function buildPreviewMessage({ runId, verification, warnings = [], defaultChannel = null }) {
+export function buildPreviewMessage({
+  runId, verification, warnings = [], defaultChannel = null,
+  publishCheck = null, compensation = null
+}) {
+  // 승인 버튼은 **나갈 글자 그대로**가 검사를 통과했을 때만 뜬다.
+  // verification.postable(조립 시점)만 보면 강사료 빈칸이 그대로 나간다.
+  const ready = verification.postable && (publishCheck ? publishCheck.postable : false);
   const blocks = [
     {
       type: 'section',
@@ -68,7 +75,38 @@ export function buildPreviewMessage({ runId, verification, warnings = [], defaul
     }]
   });
 
-  if (verification.postable) {
+  if (publishCheck && publishCheck.errors.length > 0) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:pencil2: *게시 전 처리 필요*\n${bulletList(publishCheck.errors)}`
+      }
+    });
+  }
+
+  if (compensation) {
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: `강사료 확정: ${compensation.line}` }]
+    });
+  }
+
+  // 편집 버튼은 언제나 있다. 강사료는 커리큘럼에서 나올 수 없는 값이라
+  // 사람이 한 번은 반드시 손대야 한다.
+  blocks.push({
+    type: 'actions',
+    block_id: `edit_${runId}`,
+    elements: [{
+      type: 'button',
+      action_id: EDIT_ACTION,
+      style: ready ? undefined : 'primary',
+      text: { type: 'plain_text', text: ready ? '본문 다시 고치기' : '강사료 입력·본문 편집' },
+      value: runId
+    }]
+  });
+
+  if (ready) {
     blocks.push({
       type: 'section',
       text: { type: 'mrkdwn', text: `*게시 채널*\n기본값으로 두면 <#${defaultChannel ?? '미설정'}>에 올라갑니다.` },
@@ -110,7 +148,9 @@ export function buildPreviewMessage({ runId, verification, warnings = [], defaul
       type: 'context',
       elements: [{
         type: 'mrkdwn',
-        text: '확인 필요 항목이 남아 있어 승인 버튼을 띄우지 않았습니다. 운영 조건을 채워 다시 생성하세요.'
+        text: verification.postable
+          ? '위 항목을 처리하면 승인 버튼이 나타납니다.'
+          : '확인 필요 항목이 남아 있습니다. 운영 조건을 채워 다시 생성하세요.'
       }]
     });
   }

@@ -63,8 +63,27 @@ const COLUMNS = [
   { name: 'created_by_user_id', type: 'TEXT' },
   { name: 'slack_channel_id', type: 'TEXT' },
   { name: 'slack_message_ts', type: 'TEXT' },
-  { name: 'slack_permalink', type: 'TEXT' }
+  { name: 'slack_permalink', type: 'TEXT' },
+  // 사람이 본문을 고칠 수 있게 열었으므로, 코드가 조립한 원본을 따로 남긴다.
+  // 나쁜 공고가 나갔을 때 그 문장을 코드가 썼는지 사람이 썼는지 알아야 한다.
+  { name: 'job_post_generated', type: 'TEXT' },
+  { name: 'compensation_json', type: 'TEXT' }
 ];
+
+/** 승인 전 본문·강사료를 갈아끼운다. 검토대기 상태에서만 가능하다. */
+export function updateDraft(db, { id, jobPost, compensation }) {
+  const run = getRun(db, id);
+  if (!run) throw new Error(`작업을 찾을 수 없습니다: ${id}`);
+  if (run.status !== STATUS.REVIEW_PENDING) {
+    throw new Error(`검토대기 상태가 아니라 수정할 수 없습니다 (현재: ${STATUS_LABELS[run.status] ?? run.status})`);
+  }
+  db.prepare(`UPDATE recruitment_runs
+    SET job_post_generated = COALESCE(job_post_generated, job_post),
+        job_post = ?, compensation_json = ?, postable = 1
+    WHERE id = ?`)
+    .run(jobPost, compensation ? JSON.stringify(compensation) : null, id);
+  return getRun(db, id);
+}
 
 /** v0.2 called the pre-posting state `generated`; it is now `review_pending`. */
 const LEGACY_STATUS = { generated: STATUS.REVIEW_PENDING };

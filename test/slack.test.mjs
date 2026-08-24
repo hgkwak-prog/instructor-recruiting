@@ -14,7 +14,12 @@ import {
   selectedChannelFrom,
   truncateForSlack
 } from '../adapters/slack/preview.mjs';
+import { EDIT_ACTION } from '../adapters/slack/edit-modal.mjs';
+import { buildEditModal, parseEditModal } from '../adapters/slack/edit-modal.mjs';
 import { tokenDaysRemaining } from '../adapters/server/health.mjs';
+
+/** 게시 가드를 통과한 상태 */
+const passed = { errors: [], postable: true };
 
 const pdf = { name: '커리큘럼.pdf', mimetype: 'application/pdf' };
 
@@ -95,7 +100,8 @@ test('게시 가능하면 승인·반려 버튼과 채널 선택이 붙는다', 
   const { blocks } = buildPreviewMessage({
     runId: 'b'.repeat(36),
     verification: verification(),
-    defaultChannel: 'C0DEFAULT'
+    defaultChannel: 'C0DEFAULT',
+    publishCheck: passed
   });
   const serialized = JSON.stringify(blocks);
   for (const id of [APPROVE_ACTION, REJECT_ACTION, CHANNEL_SELECT_ACTION]) {
@@ -106,8 +112,10 @@ test('게시 가능하면 승인·반려 버튼과 채널 선택이 붙는다', 
 
 test('승인 버튼에는 확인 대화상자가 붙는다', () => {
   // 실수로 누르면 대외에 글이 나간다. 되돌릴 수 없다.
-  const { blocks } = buildPreviewMessage({ runId: 'c'.repeat(36), verification: verification() });
-  const actions = blocks.find((block) => block.type === 'actions');
+  const { blocks } = buildPreviewMessage({
+    runId: 'c'.repeat(36), verification: verification(), publishCheck: passed
+  });
+  const actions = blocks.filter((block) => block.type === 'actions').at(-1);
   const approve = actions.elements.find((element) => element.action_id === APPROVE_ACTION);
   assert.ok(approve.confirm, '확인 없이 게시되면 안 됩니다');
 });
@@ -150,4 +158,68 @@ test('구독 토큰 남은 날짜를 센다', () => {
 test('발급일을 모르면 null이다 — 모르는 것을 안다고 하지 않는다', () => {
   assert.equal(tokenDaysRemaining({ issuedAt: null }), null);
   assert.equal(tokenDaysRemaining({ issuedAt: '아무말' }), null);
+});
+
+// --- 강사료 빈칸 게이트 (2026-08-24에 실사용에서 드러난 구멍) -------------------
+
+test('강사료 빈칸이 남으면 승인 버튼이 뜨지 않는다', () => {
+  // `______`는 [확인 필요] 마커가 아니라서 조립 시점 게이트(postable)를 그냥 지났다.
+  // CLI 시절엔 사람이 복붙하며 채웠으니 드러나지 않았고, 봇이 자동 게시하면서 터졌다.
+  const { blocks } = buildPreviewMessage({
+    runId: 'e'.repeat(36),
+    verification: verification(),
+    publishCheck: { errors: ['본문에 빈칸(______)이 남아 있습니다.'], postable: false }
+  });
+  const serialized = JSON.stringify(blocks);
+  assert.ok(!serialized.includes(APPROVE_ACTION), '빈칸이 남은 채로 승인할 수 있으면 안 됩니다');
+  assert.ok(serialized.includes(EDIT_ACTION), '대신 편집 버튼이 있어야 합니다');
+  assert.match(serialized, /빈칸/);
+});
+
+test('publishCheck를 안 넘기면 승인 버튼을 띄우지 않는다', () => {
+  // 실수로 검사를 빠뜨렸을 때 열려 있는 쪽으로 기울면 안 된다.
+  const { blocks } = buildPreviewMessage({ runId: 'f'.repeat(36), verification: verification() });
+  assert.ok(!JSON.stringify(blocks).includes(APPROVE_ACTION));
+});
+
+test('편집 버튼은 승인 가능해진 뒤에도 남는다', () => {
+  const { blocks } = buildPreviewMessage({
+    runId: 'g'.repeat(36), verification: verification(), publishCheck: passed
+  });
+  assert.ok(JSON.stringify(blocks).includes(EDIT_ACTION));
+});
+
+// --- 편집 모달 ---------------------------------------------------------------
+
+test('총 시수가 있으면 시간당 단가를 기본으로 제안한다', () => {
+  const modal = buildEditModal({ runId: 'h'.repeat(36), post: '본문', totalHours: 21 });
+  const serialized = JSON.stringify(modal);
+  assert.match(serialized, /21시간/);
+  assert.match(serialized, /"value":"hourly"/);
+});
+
+test('총 시수가 없으면 총액 입력을 기본으로 한다', () => {
+  const modal = buildEditModal({ runId: 'i'.repeat(36), post: '본문', totalHours: null });
+  assert.match(JSON.stringify(modal), /시간당 단가는 쓸 수 없습니다/);
+});
+
+test('모달이 고객사 예산과 제시 금액을 구분해 알려준다', () => {
+  const modal = buildEditModal({ runId: 'j'.repeat(36), post: '본문', totalHours: 21 });
+  assert.match(JSON.stringify(modal), /고객사 예산/);
+});
+
+test('모달 입력을 되읽는다', () => {
+  const view = {
+    private_metadata: JSON.stringify({ runId: 'k'.repeat(36) }),
+    state: {
+      values: {
+        fee_mode: { value: { selected_option: { value: 'hourly' } } },
+        fee_amount: { value: { value: '100,000' } },
+        post_body: { value: { value: '고친 본문' } }
+      }
+    }
+  };
+  assert.deepEqual(parseEditModal(view), {
+    runId: 'k'.repeat(36), mode: 'hourly', amount: '100,000', post: '고친 본문'
+  });
 });
