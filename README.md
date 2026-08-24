@@ -17,17 +17,51 @@
 |---|---|---|
 | **P0** | 뼈대 + `core/` 이관 + 테스트 120개 | ✅ 2026-08-24 |
 | **P1** | Claude Agent SDK로 모델 호출 교체 (구독 인증) | ✅ 2026-08-24 · 실호출 검증 완료 |
-| P2 | 게시 프로파일 — 채널별 노출 정책 | 대기 |
+| **P2** | `apps/cli.mjs` — 커리큘럼 → 검토 리포트까지 돌아감 | ✅ 2026-08-24 |
 | P3 | Slack 인테이크·승인·게시 | 대기 |
-| P4 | Notion·시트·커리어데이 | 대기 |
+| P4 | Notion·시트·커리어데이 + 게시 프로파일 | 대기 |
 | P5 | Docker 배포 | 대기 |
+
+> 설계서의 원래 P2(게시 프로파일)는 P4로 옮겼다. 두 번째 프로파일인 커리어데이의
+> 소비자가 P4에야 생기고, 슬랙 프로파일은 지금 동작 그대로라 당분간 구현체가 하나뿐인
+> 추상화가 되기 때문이다. 그보다 **레포를 돌아가게 만드는 쪽**이 먼저였다.
 
 ```bash
 npm install
-npm test           # 148개
+npm test           # 156개
 npm run check      # 구문 검사
 npm run core:deps  # core/ 의존성 0 검사
 ```
+
+## 써보기
+
+```bash
+npm run recruit -- init
+
+# 모델을 부르지 않고 실제로 보낼 프롬프트만 남긴다
+npm run recruit -- generate --source ./examples/curriculum.txt \
+                            --conditions ./examples/operating-conditions.json --dry-run
+
+# 진짜 실행 (구독 토큰 필요)
+npm run recruit -- generate --source ./examples/curriculum.txt \
+                            --conditions ./examples/operating-conditions.json
+
+npm run recruit -- list
+npm run recruit -- show --run-id <id>
+```
+
+`generate`가 끝나면 `data/reports/<run-id>.html`이 나온다. 브라우저로 열면 확인된 사실,
+누락 항목, 경고, 완성된 공고를 한 화면에서 보고 복사할 수 있다.
+
+**PDF 입력에는 `pdftotext`(poppler)가 필요하다.** `.txt`, `.md`는 그냥 된다.
+(P3에서 Slack PDF 인테이크를 붙이며 `pdf-parse`로 바꿔 이 의존성을 없앤다.)
+
+### 승인 명령이 없는 이유
+
+`approve` / `reject` / `mark-complete` / `outcome` / `sync`를 치면 "Slack에서 합니다"라고
+답하고 종료 코드 2로 끝난다. 빠뜨린 게 아니라 뺀 것이다 — 공개 승인 지점이 둘이 되면
+같은 행의 상태를 두 곳에서 바꾸게 되고, 그 경합은 나중에 재현하기 어려운 버그가 된다.
+승인은 Slack 버튼 하나로 간다(설계서 §6.4). P3에서 붙는다.
 
 의존성은 `@anthropic-ai/claude-agent-sdk` 하나뿐이고, `core/`는 여전히 0개다.
 
