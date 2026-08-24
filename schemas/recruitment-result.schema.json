@@ -1,0 +1,732 @@
+{
+  "title": "InstructorRecruitmentFacts",
+  "description": "jd-writer 서식에 필요한 사실만 담는다. 공고 본문은 코드(render.mjs)가 조립하므로 모델이 만들지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "facts",
+    "missingFields",
+    "conflicts",
+    "warnings"
+  ],
+  "properties": {
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "courseTitle",
+        "customerLabel",
+        "customerDisclosure",
+        "audience",
+        "format",
+        "location",
+        "sessionDates",
+        "dailySchedule",
+        "workingHours",
+        "hoursPerSession",
+        "totalHours",
+        "headcount",
+        "objectives",
+        "curriculumOutline",
+        "topics",
+        "environmentConstraints",
+        "responsibilities",
+        "requiredQualifications",
+        "preferredQualifications",
+        "travelExpenseIncluded",
+        "applicationMethod",
+        "deadline",
+        "deadlineTime"
+      ],
+      "properties": {
+        "role": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "enum": [
+                "주강사",
+                "보조강사"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "courseTitle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "customerLabel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "customerDisclosure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "enum": [
+                "hidden",
+                "approved"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "audience": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "format": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "sessionDates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "dailySchedule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d-([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "workingHours": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d-([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "hoursPerSession": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "totalHours": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "headcount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "objectives": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "curriculumOutline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "label",
+                  "content",
+                  "kind"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "이론",
+                      "실습",
+                      "프로젝트",
+                      "혼합"
+                    ]
+                  }
+                }
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "topics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "environmentConstraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "responsibilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "requiredQualifications": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text",
+                  "sourced"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "sourced": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "preferredQualifications": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text",
+                  "sourced"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "sourced": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "travelExpenseIncluded": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "applicationMethod": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "deadline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "deadlineTime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "evidence"
+          ],
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+            },
+            "evidence": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "missingFields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "blocking",
+          "question"
+        ],
+        "properties": {
+          "field": {
+            "enum": [
+              "role",
+              "courseTitle",
+              "customerLabel",
+              "customerDisclosure",
+              "audience",
+              "format",
+              "location",
+              "sessionDates",
+              "dailySchedule",
+              "workingHours",
+              "hoursPerSession",
+              "totalHours",
+              "headcount",
+              "objectives",
+              "curriculumOutline",
+              "topics",
+              "environmentConstraints",
+              "responsibilities",
+              "requiredQualifications",
+              "preferredQualifications",
+              "travelExpenseIncluded",
+              "applicationMethod",
+              "deadline",
+              "deadlineTime"
+            ]
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "question": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "values",
+          "note"
+        ],
+        "properties": {
+          "field": {
+            "enum": [
+              "role",
+              "courseTitle",
+              "customerLabel",
+              "customerDisclosure",
+              "audience",
+              "format",
+              "location",
+              "sessionDates",
+              "dailySchedule",
+              "workingHours",
+              "hoursPerSession",
+              "totalHours",
+              "headcount",
+              "objectives",
+              "curriculumOutline",
+              "topics",
+              "environmentConstraints",
+              "responsibilities",
+              "requiredQualifications",
+              "preferredQualifications",
+              "travelExpenseIncluded",
+              "applicationMethod",
+              "deadline",
+              "deadlineTime"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

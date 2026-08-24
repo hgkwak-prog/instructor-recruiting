@@ -1,0 +1,15 @@
+{
+  "name": "instructor-recruiting",
+  "version": "0.1.0",
+  "private": true,
+  "description": "강사 구인 자동화 — 커리큘럼에서 사실을 추출하고, 코드가 공고를 조립하고, 사람이 승인해 게시한다",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "node --check adapters/documents/files.mjs && node --check adapters/llm/claude-cli.mjs && node --check adapters/reminders.mjs && node --check adapters/sheets/sheets.mjs && node --check adapters/store/database.mjs && node --check core/conditions.mjs && node --check core/dates.mjs && node --check core/derive.mjs && node --check core/paths.mjs && node --check core/render/job-post.mjs && node --check core/report.mjs && node --check core/schema.mjs && node --check core/verify.mjs && node --check scripts/gen-schema.mjs",
+    "test": "node --test test/*.test.mjs",
+    "core:deps": "node scripts/check-core-deps.mjs"
+  }
+}
