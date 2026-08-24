@@ -11,8 +11,9 @@
 import { validate } from '../../core/schema.mjs';
 import { stripMetaSchema } from './prompt.mjs';
 import { assertSubscriptionAuth } from './guards.mjs';
+import { envOr } from '../../core/env.mjs';
 
-export const DEFAULT_MODEL = process.env.RECRUIT_MODEL ?? 'claude-sonnet-5';
+export const DEFAULT_MODEL = envOr(process.env, 'RECRUIT_MODEL', 'claude-sonnet-5');
 
 const SYSTEM_PROMPT = [
   '당신은 강사 구인 운영 담당자입니다.',

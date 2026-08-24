@@ -51,9 +51,10 @@ import { applyConditions } from '../core/conditions.mjs';
 import { buildReport } from '../core/report.mjs';
 import { businessDaysAfter, calendarDaysAfter, localDateKey } from '../core/dates.mjs';
 import { ensureDataDirectories } from '../core/paths.mjs';
+import { envNumber, envOr } from '../core/env.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
-const dataDirectory = process.env.RECRUIT_DATA_DIR ?? join(projectRoot, 'data');
+const dataDirectory = envOr(process.env, 'RECRUIT_DATA_DIR', join(projectRoot, 'data'));
 const schemaPath = join(projectRoot, 'schemas', 'recruitment-result.schema.json');
 
 function requireEnv() {
@@ -137,7 +138,7 @@ function dueDateFrom(completedAt, { waitDays, dayMode, timeZone }) {
 }
 
 function readConditions() {
-  const path = process.env.RECRUIT_CONDITIONS_PATH;
+  const path = envOr(process.env, 'RECRUIT_CONDITIONS_PATH');
   if (!path) return {};
   try {
     return JSON.parse(readFileSync(resolve(path), 'utf8'));
@@ -153,7 +154,7 @@ async function main() {
   const db = openDatabase(join(dataDirectory, 'recruitment.sqlite'));
   const conditions = readConditions();
   const reminderConfig = readReminderConfig();
-  const defaultChannel = process.env.SLACK_CHANNEL_ID?.trim() || null;
+  const defaultChannel = envOr(process.env, 'SLACK_CHANNEL_ID');
 
   const receiver = new SocketModeReceiver({
     appToken: process.env.SLACK_APP_TOKEN,
@@ -170,14 +171,14 @@ async function main() {
   }
 
   const publisher = createPublisher({
-    mode: process.env.PUBLISH_MODE ?? 'slack',
+    mode: envOr(process.env, 'PUBLISH_MODE', 'slack'),
     client: app.client,
     defaultChannel
   });
   const queue = createSerialQueue();
   const budget = new CallBudget({
     path: join(dataDirectory, 'call-budget.json'),
-    limit: Number(process.env.RECRUIT_DAILY_CALL_LIMIT ?? 30)
+    limit: envNumber(process.env, 'RECRUIT_DAILY_CALL_LIMIT', 30)
   });
   const extractor = await createExtractor({ queue });
   console.log(`Claude 인증: ${extractor.auth.credential} / 모델 ${DEFAULT_MODEL} / 오늘 남은 호출 ${budget.remaining()}건\n`);
@@ -531,7 +532,7 @@ async function main() {
   // --- 상태 확인과 정상 종료 --------------------------------------------------
   let shuttingDown = false;
   const health = startHealthServer({
-    port: Number(process.env.HEALTH_PORT ?? 3000),
+    port: envNumber(process.env, 'HEALTH_PORT', 3000),
     pingDatabase: () => Boolean(db.prepare('SELECT 1 AS ok').get()?.ok),
     isShuttingDown: () => shuttingDown
   });

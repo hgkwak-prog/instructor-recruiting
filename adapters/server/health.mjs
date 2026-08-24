@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { envOr } from '../../core/env.mjs';
 
 function json(response, statusCode, body) {
   response.writeHead(statusCode, {
@@ -30,7 +31,7 @@ export function startHealthServer({
   port = 3000,
   isReady = () => true,
   isShuttingDown = () => false,
-  tokenIssuedAt = process.env.CLAUDE_CODE_OAUTH_TOKEN_ISSUED_AT ?? null,
+  tokenIssuedAt = envOr(process.env, 'CLAUDE_CODE_OAUTH_TOKEN_ISSUED_AT'),
   tokenWarnDays = 30,
   logger = console
 }) {

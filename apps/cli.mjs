@@ -21,6 +21,7 @@ import { verifyResult } from '../core/verify.mjs';
 import { applyConditions } from '../core/conditions.mjs';
 import { buildReport } from '../core/report.mjs';
 import { DATA_SUBDIRS, ensureDataDirectories } from '../core/paths.mjs';
+import { envNumber } from '../core/env.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const dataDirectory = join(projectRoot, 'data');
@@ -108,7 +109,7 @@ export async function generate(db, options, context = {}) {
   const model = typeof options.model === 'string' ? options.model : DEFAULT_MODEL;
   const budget = new CallBudget({
     path: join(dataDir, 'call-budget.json'),
-    limit: Number(process.env.RECRUIT_DAILY_CALL_LIMIT ?? 30)
+    limit: envNumber(process.env, 'RECRUIT_DAILY_CALL_LIMIT', 30)
   });
   const extractor = injectedExtractor ?? await createExtractor({ queue: createSerialQueue() });
   warn(`모델 ${model} 호출 (인증: ${extractor.auth.credential}, 오늘 남은 호출 ${budget.remaining()}건)`);

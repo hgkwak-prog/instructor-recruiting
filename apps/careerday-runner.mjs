@@ -20,12 +20,13 @@ import { chromium } from 'playwright';
 import { openDatabase, getRun, recordOutcome } from '../adapters/store/database.mjs';
 import { fillCareerdayForm } from '../adapters/careerday/site-adapter.mjs';
 import { buildCareerdayDraft, buildCareerdayFormPlan } from '../core/render/careerday.mjs';
+import { envOr } from '../core/env.mjs';
 
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const dataDirectory = process.env.RECRUIT_DATA_DIR ?? join(projectRoot, 'data');
+const dataDirectory = envOr(process.env, 'RECRUIT_DATA_DIR', join(projectRoot, 'data'));
 
 function requireCreateUrl() {
-  const url = process.env.CAREERDAY_CREATE_URL?.trim();
+  const url = envOr(process.env, 'CAREERDAY_CREATE_URL');
   if (!url) throw new Error('CAREERDAY_CREATE_URL이 없습니다. .env에 등록 화면 주소를 넣으세요.');
   return url;
 }
@@ -35,8 +36,8 @@ function requireCreateUrl() {
  * 매번 로그인하게 만들면 아무도 안 쓴다.
  */
 async function launchBrowser() {
-  const profile = process.env.CAREERDAY_BROWSER_PROFILE
-    ?? join(dataDirectory, 'careerday-browser');
+  // `??`로 읽으면 `.env`의 빈 줄이 `''`로 들어와 mkdir('')로 죽는다 (실제로 죽었다).
+  const profile = envOr(process.env, 'CAREERDAY_BROWSER_PROFILE', join(dataDirectory, 'careerday-browser'));
   mkdirSync(profile, { recursive: true });
   return chromium.launchPersistentContext(profile, {
     headless: false,
