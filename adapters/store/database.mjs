@@ -70,8 +70,20 @@ const COLUMNS = [
   { name: 'compensation_json', type: 'TEXT' },
   // 경고를 보고도 승인한 경우 그 경고를 남긴다. "못 찾은 사람 책임"이 성립하려면
   // 무엇이 눈앞에 있었는지가 기록돼야 한다.
-  { name: 'acknowledged_warnings', type: 'TEXT' }
+  { name: 'acknowledged_warnings', type: 'TEXT' },
+  // 커리어데이 단계에서 담당자가 넣는 값(마감일·상세주소). 슬랙 공고에는 없고
+  // 커리어데이 폼에만 들어간다 — 채널마다 노출이 다르기 때문이다(설계서 §6.3).
+  { name: 'publishing_input_json', type: 'TEXT' }
 ];
+
+/** 커리어데이 단계의 담당자 입력값을 저장한다. */
+export function savePublishingInput(db, { id, publishingInput }) {
+  const run = getRun(db, id);
+  if (!run) throw new Error(`작업을 찾을 수 없습니다: ${id}`);
+  db.prepare('UPDATE recruitment_runs SET publishing_input_json = ? WHERE id = ?')
+    .run(JSON.stringify(publishingInput), id);
+  return getRun(db, id);
+}
 
 /** 승인 전 본문·강사료를 갈아끼운다. 검토대기 상태에서만 가능하다. */
 export function updateDraft(db, { id, jobPost, compensation }) {

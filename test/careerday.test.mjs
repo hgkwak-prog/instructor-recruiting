@@ -178,3 +178,49 @@ test('빠진 값이 있으면 폼을 열지 않는다', () => {
   });
   assert.throws(() => buildCareerdayFormPlan(incomplete), /모집 인원/);
 });
+
+// --- 보상 단위 고르기 (2026-08-24 화면: 개월 · 일 · 시간) -----------------------
+
+test('실제 드롭다운에 있는 첫 후보를 고른다', async () => {
+  const { selectRewardUnit } = await import('../adapters/careerday/site-adapter.mjs');
+  const selected = [];
+  const page = fakePage(['개월', '일', '시간'], selected);
+
+  const chosen = await selectRewardUnit(page, [
+    { unit: '시간', count: 21 }, { unit: '일', count: 3 }, { unit: '개월', count: 1 }
+  ]);
+  assert.deepEqual(chosen, { unit: '시간', count: 21 });
+  assert.deepEqual(selected, ['시간']);
+});
+
+test('1순위가 없으면 다음 후보로 내려가고 횟수도 함께 바뀐다', async () => {
+  const { selectRewardUnit } = await import('../adapters/careerday/site-adapter.mjs');
+  const selected = [];
+  const page = fakePage(['개월', '일'], selected);
+
+  const chosen = await selectRewardUnit(page, [
+    { unit: '시간', count: 21 }, { unit: '일', count: 3 }
+  ]);
+  assert.deepEqual(chosen, { unit: '일', count: 3 }, '21시간이 21일이 되면 안 됩니다');
+});
+
+test('맞는 단위가 하나도 없으면 무엇이 있는지 알려준다', async () => {
+  const { selectRewardUnit } = await import('../adapters/careerday/site-adapter.mjs');
+  const page = fakePage(['주'], []);
+  await assert.rejects(
+    selectRewardUnit(page, [{ unit: '시간', count: 21 }]),
+    /화면에 있는 것: 주/
+  );
+});
+
+/** select 하나만 흉내 내는 최소 Playwright 대역 */
+function fakePage(options, selected) {
+  const select = {
+    async count() { return 1; },
+    locator: (what) => ({
+      async allTextContents() { return what === 'option' ? options : []; }
+    }),
+    async selectOption({ label }) { selected.push(label); }
+  };
+  return { locator: () => select };
+}

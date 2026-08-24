@@ -18,7 +18,7 @@ import { App, LogLevel, SocketModeReceiver } from '@slack/bolt';
 
 import {
   openDatabase, createRun, getRun, reviewRun, completeRun, updateDraft,
-  dueRuns, markFollowUpSent, recordOutcome, STATUS
+  dueRuns, markFollowUpSent, recordOutcome, savePublishingInput, STATUS
 } from '../adapters/store/database.mjs';
 import { readSlackFile, rejectionMessage, shouldIntake } from '../adapters/slack/intake.mjs';
 import {
@@ -33,9 +33,13 @@ import {
 } from '../core/compensation.mjs';
 import { checkPostText } from '../core/publish-guard.mjs';
 import {
-  OUTCOME_ACTION, OUTCOME_MODAL, buildOutcomeModal, buildOutcomeRecordedMessage,
-  dispatchReminders, parseOutcomeModal
+  CAREERDAY_ACTION, CAREERDAY_MODAL, OUTCOME_ACTION, OUTCOME_MODAL,
+  buildCareerdayModal, buildCareerdayReadyMessage, buildOutcomeModal,
+  buildOutcomeRecordedMessage, dispatchReminders, parseCareerdayModal, parseOutcomeModal
 } from '../adapters/slack/reminder.mjs';
+import {
+  CareerdayDraftError, buildCareerdayDraft, buildCareerdayFormPlan
+} from '../core/render/careerday.mjs';
 import { readReminderConfig } from '../adapters/reminder-config.mjs';
 import { createPublisher } from '../adapters/publisher/index.mjs';
 import { buildPrompt, writePromptFile } from '../adapters/llm/prompt.mjs';
@@ -440,6 +444,62 @@ async function main() {
     } catch (error) {
       logger.error(error);
       await client.chat.postMessage({ channel, thread_ts: ts, text: `기록에 실패했습니다: ${error.message}` });
+    }
+  });
+
+  // --- 커리어데이 에스컬레이션 -------------------------------------------------
+  /** DB 행에서 커리어데이 초안을 만든다. 값의 출처를 한 군데로 모은다. */
+  const careerdayDraftFor = (run) => buildCareerdayDraft({
+    runId: run.id,
+    facts: JSON.parse(run.result_json ?? '{}').facts ?? {},
+    jobPost: run.job_post,
+    compensation: run.compensation_json ? JSON.parse(run.compensation_json) : null,
+    publishingInput: run.publishing_input_json ? JSON.parse(run.publishing_input_json) : {}
+  });
+
+  app.action(CAREERDAY_ACTION, async ({ ack, body, action, client, logger }) => {
+    await ack();
+    try {
+      const run = getRun(db, action.value);
+      if (!run) throw new Error(`작업을 찾을 수 없습니다: ${action.value}`);
+      let draft = null;
+      try {
+        draft = careerdayDraftFor(run);
+      } catch (error) {
+        // 모순이 있으면 초안이 안 만들어진다. 그래도 모달은 열어 고칠 기회를 준다.
+        if (!(error instanceof CareerdayDraftError)) throw error;
+        logger.warn(error.message);
+      }
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: {
+          ...buildCareerdayModal({ run, draft }),
+          private_metadata: JSON.stringify({
+            runId: run.id, channel: body.channel.id, ts: body.message.ts
+          })
+        }
+      });
+    } catch (error) {
+      logger.error(error);
+    }
+  });
+
+  app.view(CAREERDAY_MODAL, async ({ ack, view, client, logger }) => {
+    const { runId, deadline, venueAddress } = parseCareerdayModal(view);
+    const { channel, ts } = JSON.parse(view.private_metadata);
+    try {
+      savePublishingInput(db, { id: runId, publishingInput: { deadline, venueAddress } });
+      const run = getRun(db, runId);
+      // 폼을 열기 전에 여기서 막는다. 브라우저를 띄운 뒤 값이 없다고 하면 늦다.
+      const plan = buildCareerdayFormPlan(careerdayDraftFor(run));
+      await ack();
+      await client.chat.update({ channel, ts, ...buildCareerdayReadyMessage({ run, plan }) });
+    } catch (error) {
+      logger.error(error);
+      await ack();
+      await client.chat.postMessage({
+        channel, thread_ts: ts, text: `커리어데이 준비에 실패했습니다: ${error.message}`
+      });
     }
   });
 
