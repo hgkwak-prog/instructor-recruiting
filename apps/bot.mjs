@@ -29,6 +29,10 @@ import {
   EDIT_MODAL, buildEditModal, modalErrors, parseEditModal
 } from '../adapters/slack/edit-modal.mjs';
 import {
+  OPERATIONS_ACTION, OPERATIONS_MODAL,
+  buildOperationsModal, parseOperationsModal, validateOperations
+} from '../adapters/slack/operations-modal.mjs';
+import {
   CompensationError, applyCompensationLine, buildCompensationLine
 } from '../core/compensation.mjs';
 import { checkPostText } from '../core/publish-guard.mjs';
@@ -147,13 +151,43 @@ function readConditions() {
   }
 }
 
+/**
+ * 모달을 채우는 동안 파일을 들고 있는다.
+ *
+ * Slack 파일 URL은 토큰이 있어야 열리고 영원하지도 않으므로, 지금 받은 것을
+ * 그대로 쥐고 있다가 제출될 때 쓴다. 30분이면 충분하다 — 그보다 오래 걸리면
+ * 사람이 딴 일을 하러 간 것이고, 그때는 파일을 다시 던지는 편이 맞다.
+ */
+function createPendingIntake({ ttlMs = 30 * 60 * 1000 } = {}) {
+  const items = new Map();
+  return {
+    put(key, value) {
+      items.set(key, { value, expiresAt: Date.now() + ttlMs });
+      return key;
+    },
+    take(key) {
+      const found = items.get(key);
+      items.delete(key);
+      if (!found || found.expiresAt < Date.now()) return null;
+      return found.value;
+    },
+    get size() {
+      return items.size;
+    }
+  };
+}
+
 async function main() {
   requireEnv();
   ensureDataDirectories(dataDirectory);
 
   const db = openDatabase(join(dataDirectory, 'recruitment.sqlite'));
-  const conditions = readConditions();
+  // 파일에서 읽는 것은 이제 **기본값**이다. 건별 값은 모달이 덮어쓴다.
+  const baseConditions = readConditions();
   const reminderConfig = readReminderConfig();
+  const pendingIntake = createPendingIntake();
+  // 지난 입력을 기억해 다음 건에서 다시 치지 않게 한다. 대부분 장소·지원방법이 같다.
+  let lastOperations = { ...baseConditions };
   const defaultChannel = envOr(process.env, 'SLACK_CHANNEL_ID');
 
   const receiver = new SocketModeReceiver({
@@ -192,29 +226,101 @@ async function main() {
       return;
     }
 
+    // 파일을 붙잡아 두고 운영사항부터 묻는다. 커리큘럼은 제안서 단계 문서라
+    // 실제 운영과 다를 수 있고, 그 차이를 사람만 안다.
+    const token = pendingIntake.put(randomUUID(), {
+      file: verdict.file, channel: event.channel, user: event.user
+    });
     await client.chat.postMessage({
       channel: event.channel,
-      text: `\`${verdict.file.name}\` 읽는 중입니다. 사실 추출까지 20초쯤 걸립니다.`
+      text: `\`${verdict.file.name}\` 받았습니다. 실제 운영 사항을 확인한 뒤 읽겠습니다.`,
+      blocks: [
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: `\`${verdict.file.name}\` 받았습니다.` }
+        },
+        {
+          type: 'actions',
+          block_id: `ops_${token}`,
+          elements: [{
+            type: 'button',
+            action_id: OPERATIONS_ACTION,
+            style: 'primary',
+            text: { type: 'plain_text', text: '운영사항 입력' },
+            value: token
+          }]
+        }
+      ]
+    });
+  });
+
+  app.action(OPERATIONS_ACTION, async ({ ack, body, action, client, logger }) => {
+    await ack();
+    try {
+      const pending = pendingIntake.take(action.value);
+      if (!pending) {
+        await client.chat.postMessage({
+          channel: body.channel.id,
+          text: '시간이 지나 파일을 놓쳤습니다. 다시 보내 주세요.'
+        });
+        return;
+      }
+      // 모달이 닫히면 파일을 다시 못 찾으므로, 열면서 같은 열쇠로 되돌려 놓는다.
+      pendingIntake.put(action.value, pending);
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: {
+          ...buildOperationsModal({ fileName: pending.file.name, defaults: lastOperations }),
+          private_metadata: JSON.stringify({ token: action.value, channel: body.channel.id })
+        }
+      });
+    } catch (error) {
+      logger.error(error);
+    }
+  });
+
+  app.view(OPERATIONS_MODAL, async ({ ack, view, client, logger }) => {
+    const operations = parseOperationsModal(view);
+    const invalid = validateOperations(operations);
+    if (invalid) return ack(invalid);
+    await ack();
+
+    const { token, channel } = JSON.parse(view.private_metadata);
+    const pending = pendingIntake.take(token);
+    if (!pending) {
+      await client.chat.postMessage({ channel, text: '시간이 지나 파일을 놓쳤습니다. 다시 보내 주세요.' });
+      return;
+    }
+    // 다음 건에서 같은 것을 또 치지 않도록 기억한다.
+    lastOperations = operations;
+
+    await client.chat.postMessage({
+      channel,
+      text: `\`${pending.file.name}\` 읽는 중입니다. 사실 추출까지 20초쯤 걸립니다.`
     });
 
+    const event = { channel, user: pending.user };
     try {
-      const curriculum = await readSlackFile({ file: verdict.file, token: process.env.SLACK_BOT_TOKEN });
+      const curriculum = await readSlackFile({ file: pending.file, token: process.env.SLACK_BOT_TOKEN });
       const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
       const runId = randomUUID();
       const runDirectory = join(dataDirectory, 'runs', runId);
+      // 파일 하나에 박힌 전역 조건이 아니라, 방금 담당자가 넣은 값이다.
+      const conditions = { ...baseConditions, ...operations };
       const prompt = buildPrompt({ projectRoot, curriculum, conditions, schema });
       writePromptFile({ prompt, runDirectory });
 
       const { result } = await extractor.extract({ prompt, schema, model: DEFAULT_MODEL, budget });
 
-      const applied = applyConditions(result.facts, conditions);
+      // override: 커리큘럼에 값이 있어도 담당자 입력이 이긴다.
+      const applied = applyConditions(result.facts, conditions, { override: true });
       result.facts = applied.facts;
 
       const verification = verifyResult({ result, conditions });
       const generatedAt = new Date().toISOString();
       const reportPath = join(dataDirectory, 'reports', `${runId}.html`);
       writeFileSync(join(runDirectory, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
-      writeFileSync(reportPath, buildReport({ runId, result, verification, generatedAt, sourcePath: verdict.file.name }));
+      writeFileSync(reportPath, buildReport({ runId, result, verification, generatedAt, sourcePath: pending.file.name }));
 
       if (verification.errors.length > 0) {
         // 검증에 실패한 생성은 DB에 들어가지 않는다. 승인 대상이 될 수 없다는 뜻이다.
@@ -227,17 +333,21 @@ async function main() {
 
       createRun(db, {
         id: runId,
-        sourcePath: verdict.file.name,
+        sourcePath: pending.file.name,
         courseTitle: result.facts.courseTitle.value,
         role: result.facts.role.value,
         result,
         jobPost: verification.slackJobPost,
         postable: verification.postable,
         generatedAt,
-        createdByUserId: event.user
+        createdByUserId: pending.user
       });
 
-      const warnings = [...verification.warnings, ...(result.warnings ?? [])];
+      const warnings = [
+        ...verification.warnings,
+        ...(result.warnings ?? []),
+        ...applied.overridden.map(({ key, from, to }) => `${key}: 원문 "${from}" → 입력 "${to}"`)
+      ];
       const publishCheck = checkPostText(verification.slackJobPost, {
         customerLabel: result.facts.customerLabel?.value ?? null,
         customerHidden: (result.facts.customerDisclosure?.value ?? 'hidden') !== 'approved',

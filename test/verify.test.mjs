@@ -48,16 +48,20 @@ test('blocks a fact with no evidence', () => {
   assert.ok(errors.some((e) => e.includes('facts.location')));
 });
 
-test('operating conditions outrank the model', () => {
+test('커리큘럼과 담당자 입력이 다르면 막지 않고 알린다', () => {
+  // 커리큘럼은 제안서 단계 산출물이라 실제 운영과 다른 것이 정상이다.
+  // 장소가 바뀌고 인원이 조정되는 것은 사고가 아니다.
+  // 예전에는 여기서 오류를 내 DB에도 못 들어갔다 — 맞는 값을 넣었는데도.
   const result = baseResult();
   result.facts.headcount = fact(3);
   result.facts.role = fact('주강사', '운영 조건');
-  const { errors } = verifyResult({
+  const { errors, warnings } = verifyResult({
     result,
     conditions: { customerDisclosure: 'hidden', headcount: 1, instructorRole: '보조강사' }
   });
-  assert.ok(errors.some((e) => e.includes('headcount 불일치')));
-  assert.ok(errors.some((e) => e.includes('role 불일치')));
+  assert.deepEqual(errors, [], '불일치로 막으면 안 됩니다');
+  assert.ok(warnings.some((w) => w.includes('headcount') && w.includes('입력값을 씁니다')));
+  assert.ok(warnings.some((w) => w.includes('role')));
 });
 
 test('blocks a real customer name while disclosure is hidden', () => {

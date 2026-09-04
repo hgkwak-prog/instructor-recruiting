@@ -106,8 +106,10 @@ export function verifyResult({ result, conditions = {} }) {
     warnings.push(`totalHours가 비어 있습니다. ${hours}시간 × ${dates.length}회 기준을 담당자가 확인해 주세요.`);
   }
 
-  // 4. Operating conditions outrank anything the model inferred.
-  //    Aliases are normalised so a sheet sending "assistant" still matches 보조강사.
+  // 4. 운영 조건이 모델 추론을 이긴다.
+  //    **불일치는 오류가 아니라 경고다.** 커리큘럼은 제안서 단계 산출물이라
+  //    실제 운영과 다른 것이 정상이고, 담당자가 넣은 값이 최신이다.
+  //    예전에는 여기서 막혀 DB에도 못 들어갔다 — 맞는 값을 넣었는데도.
   const checks = [
     ['role', 'instructorRole', normalizeRole],
     ['customerDisclosure', 'customerDisclosure', normalizeDisclosure],
@@ -122,7 +124,7 @@ export function verifyResult({ result, conditions = {} }) {
     const expected = normalize(raw);
     const actual = get(factKey);
     if (actual !== null && normalize(actual) !== expected) {
-      errors.push(`${factKey} 불일치: 운영 조건 "${raw}" vs 결과 "${actual}"`);
+      warnings.push(`${factKey}: 원문은 "${actual}", 담당자 입력은 "${raw}" — 입력값을 씁니다.`);
     }
   }
 
