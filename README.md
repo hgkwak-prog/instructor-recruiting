@@ -113,6 +113,54 @@ DM에 커리큘럼 파일 → [운영사항 입력] → 사실 추출 → 공고
 > CLI의 `--conditions`는 남는다. 실행할 때마다 명시적으로 지정하는 인자라
 > 어떤 값이 어디서 왔는지가 명령줄에 그대로 보인다.
 
+### 흐름을 검수하려면 — CLI가 낫다
+
+봇은 Slack UI라 결과만 보인다. **무엇이 어디서 틀어졌는지 보려면 CLI로 같은 걸 돌린다.**
+두 경로는 같은 `core/`를 쓰고 `applyConditions`도 같은 옵션으로 부르므로,
+CLI에서 본 결과가 곧 봇 동작이다.
+
+```bash
+# 1) 모델을 안 부르고 프롬프트만 본다 — SKILL.md 규칙이 어떻게 주입되는지
+npm run recruit -- generate --source ./커리큘럼.pdf \
+                            --conditions ./ops.json --dry-run
+cat data/runs/<run-id>/prompt.txt
+
+# 2) 진짜 돌린다
+npm run recruit -- generate --source ./커리큘럼.pdf --conditions ./ops.json
+```
+
+`ops.json`은 봇 모달에 넣을 값과 같은 어휘다. 실제 운영값으로 채운다:
+
+```json
+{
+  "instructorRole": "보조강사",
+  "location": "실제 교육 장소",
+  "headcount": 1,
+  "dailySchedule": "10:00-17:00",
+  "workingHours": "09:30-17:30",
+  "applicationMethod": "실제 지원 경로",
+  "deadline": "2026-09-30",
+  "travelExpenseIncluded": false,
+  "customerDisclosure": "hidden"
+}
+```
+
+한 건이 끝나면 `data/runs/<run-id>/`에 **단계별로** 남는다.
+
+| 파일 | 무엇을 확인하나 |
+|---|---|
+| `curriculum.txt` | 파서가 뽑은 텍스트. PDF·HTML이 무엇으로 바뀌었는지 — 표가 뭉갰는지, 글을 놓쳤는지 |
+| `conditions.json` | 사람이 넣은 운영사항 |
+| `prompt.txt` | 모델에 보낸 글자 그대로 |
+| `result.json` | 모델이 돌려준 facts. `evidence`에 근거가 적혀 있다 |
+| `verification.json` | 검산 결과 — 오류·경고·조립된 공고·`postable` |
+
+무엇이 잘못됐을 때 이 순서로 좁힌다. `curriculum.txt`가 이상하면 파서 문제,
+멀쩡한데 `result.json`이 틀렸으면 모델 문제, 둘 다 맞는데 공고가 이상하면
+`core/render/job-post.mjs` 문제다.
+
+`data/reports/<run-id>.html`도 나온다. 브라우저로 열면 같은 내용이 한 화면에 정리돼 있다.
+
 ### 부팅 배너를 반드시 확인할 것
 
 테스트 워크스페이스와 실제 워크스페이스의 설정이 두 벌 존재하게 된다.

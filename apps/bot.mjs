@@ -56,6 +56,7 @@ import { buildReport } from '../core/report.mjs';
 import { businessDaysAfter, calendarDaysAfter, localDateKey } from '../core/dates.mjs';
 import { ensureDataDirectories } from '../core/paths.mjs';
 import { envNumber, envOr } from '../core/env.mjs';
+import { writeRunArtifacts } from '../adapters/run-artifacts.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const dataDirectory = envOr(process.env, 'RECRUIT_DATA_DIR', join(projectRoot, 'data'));
@@ -325,6 +326,7 @@ async function main() {
       const conditions = operations;
       const prompt = buildPrompt({ projectRoot, curriculum, conditions, schema });
       writePromptFile({ prompt, runDirectory });
+      writeRunArtifacts(runDirectory, { curriculum, conditions });
 
       const { result } = await extractor.extract({ prompt, schema, model: DEFAULT_MODEL, budget });
 
@@ -335,7 +337,7 @@ async function main() {
       const verification = verifyResult({ result, conditions });
       const generatedAt = new Date().toISOString();
       const reportPath = join(dataDirectory, 'reports', `${runId}.html`);
-      writeFileSync(join(runDirectory, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
+      writeRunArtifacts(runDirectory, { result, verification });
       writeFileSync(reportPath, buildReport({ runId, result, verification, generatedAt, sourcePath: pending.file.name }));
 
       if (verification.errors.length > 0) {

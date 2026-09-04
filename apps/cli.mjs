@@ -22,6 +22,7 @@ import { applyConditions } from '../core/conditions.mjs';
 import { buildReport } from '../core/report.mjs';
 import { DATA_SUBDIRS, ensureDataDirectories } from '../core/paths.mjs';
 import { envNumber } from '../core/env.mjs';
+import { writeRunArtifacts } from '../adapters/run-artifacts.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const dataDirectory = join(projectRoot, 'data');
@@ -117,10 +118,15 @@ export async function generate(db, options, context = {}) {
   const { result, attempts, usages } = await extractor.extract({ prompt, schema, model, budget });
 
   // 운영 조건은 담당자의 선언이다. 모델이 비워 둔 항목은 코드가 채운다.
-  const applied = applyConditions(result.facts, conditions);
+  // 봇의 모달과 같은 의미다 — 실행할 때 사람이 명시적으로 준 값이므로
+  // 커리큘럼을 이긴다. 여기가 봇과 다르면 CLI로 한 검수를 믿을 수 없다.
+  const applied = applyConditions(result.facts, conditions, { override: true });
   result.facts = applied.facts;
   if (applied.filled.length > 0) {
     warn(`운영 조건에서 채운 항목: ${applied.filled.join(', ')}`);
+  }
+  for (const { key, from, to } of applied.overridden) {
+    warn(`덮어씀 ${key}: 원문 "${from}" → 입력 "${to}"`);
   }
 
   // 공고 본문은 여기서 사실로부터 조립된다. 모델은 본문을 쓴 적이 없다.
@@ -128,8 +134,7 @@ export async function generate(db, options, context = {}) {
   const generatedAt = new Date().toISOString();
   const reportPath = join(dataDir, 'reports', `${runId}.html`);
 
-  writeFileSync(join(runDirectory, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
-  writeFileSync(join(runDirectory, 'verification.json'), `${JSON.stringify(verification, null, 2)}\n`);
+  writeRunArtifacts(runDirectory, { curriculum, conditions, result, verification });
   writeFileSync(reportPath, buildReport({ runId, result, verification, generatedAt, sourcePath }));
 
   if (verification.errors.length > 0) {
