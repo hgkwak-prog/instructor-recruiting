@@ -141,14 +141,29 @@ function dueDateFrom(completedAt, { waitDays, dayMode, timeZone }) {
     : businessDaysAfter(today, waitDays, timeZone);
 }
 
-function readConditions() {
+/**
+ * 운영 조건 **파일은 쓰지 않는다.**
+ *
+ * 예전에는 `RECRUIT_CONDITIONS_PATH`가 가리키는 JSON을 부팅 때 읽어 모든 건의
+ * 기본값으로 썼다. 그런데 그 값들은 `evidence: "운영 조건 ..."`을 달고 들어가
+ * 검산을 그냥 통과한다 — **출처가 없는 값이 사실인 척 공고로 나갈 수 있었다.**
+ * 실제로 `.env`가 `examples/` 아래 샘플 파일을 가리키고 있었고, 거기 적힌
+ * 가짜 장소·시간·마감일이 모든 건의 기본값이었다.
+ *
+ * 이제 운영사항은 건별로 사람이 모달에 넣는다. 파일 기본값은 존재 이유가 없고
+ * 가짜 값이 새어드는 경로만 된다. 그래서 없앤다.
+ *
+ * (CLI의 `--conditions`는 남는다. 실행할 때마다 사람이 명시적으로 지정하는
+ *  인자라서 "어떤 값이 어디서 왔는지"가 명령줄에 그대로 보인다.)
+ */
+function assertNoConditionsFile() {
   const path = envOr(process.env, 'RECRUIT_CONDITIONS_PATH');
-  if (!path) return {};
-  try {
-    return JSON.parse(readFileSync(resolve(path), 'utf8'));
-  } catch (error) {
-    throw new Error(`운영 조건 파일을 읽지 못했습니다 (${path}): ${error.message}`);
-  }
+  if (!path) return;
+  throw new Error(
+    `RECRUIT_CONDITIONS_PATH가 설정돼 있습니다 (${path}). 봇은 더 이상 이 파일을 쓰지 않습니다 — `
+    + '거기 적힌 값이 출처 없이 모든 건의 기본값이 되어 공고로 나갈 수 있었습니다. '
+    + '운영사항은 파일을 받을 때 모달로 받습니다. .env에서 이 줄을 지우세요.'
+  );
 }
 
 /**
@@ -182,12 +197,13 @@ async function main() {
   ensureDataDirectories(dataDirectory);
 
   const db = openDatabase(join(dataDirectory, 'recruitment.sqlite'));
-  // 파일에서 읽는 것은 이제 **기본값**이다. 건별 값은 모달이 덮어쓴다.
-  const baseConditions = readConditions();
+  assertNoConditionsFile();
   const reminderConfig = readReminderConfig();
   const pendingIntake = createPendingIntake();
   // 지난 입력을 기억해 다음 건에서 다시 치지 않게 한다. 대부분 장소·지원방법이 같다.
-  let lastOperations = { ...baseConditions };
+  // **사람이 실제로 친 값만** 들어온다. 어떤 기본값도 미리 채우지 않는다 —
+  // 미리 채워 두면 담당자가 확인 없이 넘기고, 그 순간 출처 없는 값이 공고가 된다.
+  let lastOperations = {};
   const defaultChannel = envOr(process.env, 'SLACK_CHANNEL_ID');
 
   const receiver = new SocketModeReceiver({
@@ -305,8 +321,8 @@ async function main() {
       const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
       const runId = randomUUID();
       const runDirectory = join(dataDirectory, 'runs', runId);
-      // 파일 하나에 박힌 전역 조건이 아니라, 방금 담당자가 넣은 값이다.
-      const conditions = { ...baseConditions, ...operations };
+      // 방금 담당자가 넣은 값이 전부다. 섞어 넣을 기본값 같은 것은 없다.
+      const conditions = operations;
       const prompt = buildPrompt({ projectRoot, curriculum, conditions, schema });
       writePromptFile({ prompt, runDirectory });
 

@@ -75,7 +75,7 @@ export function buildOperationsModal({ fileName, defaults = {} } = {}) {
       input(LOCATION_BLOCK, '교육 장소', {
         type: 'plain_text_input',
         action_id: 'value',
-        placeholder: { type: 'plain_text', text: '서울시 성동구 ○○센터' },
+        placeholder: { type: 'plain_text', text: '교육이 진행되는 장소' },
         ...(defaults.location ? { initial_value: defaults.location } : {})
       }, { hint: '공고에는 시·군·구까지만 나갑니다. 상세 주소를 적어도 잘립니다.' }),
       input(HEADCOUNT_BLOCK, '모집 인원', {
@@ -100,7 +100,7 @@ export function buildOperationsModal({ fileName, defaults = {} } = {}) {
       input(APPLICATION_BLOCK, '지원 방법', {
         type: 'plain_text_input',
         action_id: 'value',
-        placeholder: { type: 'plain_text', text: 'edu-recruit@modulabs.co.kr으로 이력서 회신' },
+        placeholder: { type: 'plain_text', text: '채용 담당자 이메일로 이력서 회신' },
         ...(defaults.applicationMethod ? { initial_value: defaults.applicationMethod } : {})
       }, { hint: '이게 없으면 아무도 지원할 수 없습니다.' }),
       input(DEADLINE_BLOCK, '모집 마감일', {

@@ -135,3 +135,43 @@ test('빈 문자열은 조건으로 치지 않는다', () => {
   assert.equal(next.workingHours.value, '09:30-17:30');
   assert.deepEqual(overridden, []);
 });
+
+// --- 출처 없는 기본값이 새어들지 않는다 (2026-08-24) ---------------------------
+
+test('모달에 미리 채우지 않는다 — 확인 없이 넘어가면 출처 없는 값이 공고가 된다', () => {
+  const modal = buildOperationsModal({ fileName: 'x.pdf' });
+  const serialized = JSON.stringify(modal);
+  // 인원만 1로 시작한다. 나머지는 사람이 직접 쳐야 한다.
+  assert.ok(!serialized.includes('"initial_value":"10:00-17:00"'));
+  assert.ok(!serialized.includes('"initial_date"'));
+});
+
+test('예시 주소·장소가 코드에 박혀 있지 않다', async () => {
+  // `.env`가 examples/operating-conditions.json을 가리킨 탓에 가짜 장소·시간·마감일이
+  // 모든 건의 기본값으로 들어갔고, evidence가 붙어 검산까지 통과했다.
+  // 같은 값이 placeholder로도 남아 있었다.
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../adapters/slack/operations-modal.mjs', import.meta.url), 'utf8'
+  );
+  for (const leaked of ['modulabs.co.kr', '서울시 성동구', '2026-08-25']) {
+    assert.ok(!source.includes(leaked), `${leaked}가 코드에 남아 있습니다`);
+  }
+});
+
+test('예제 파일이 봇 설정으로 새어들 수 없다', async () => {
+  // .env가 examples/ 를 가리키면 부팅이 멈춰야 한다.
+  const { readFileSync } = await import('node:fs');
+  for (const name of ['.env', '.env.example']) {
+    let content;
+    try {
+      content = readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
+    } catch {
+      continue;
+    }
+    assert.ok(
+      !/^RECRUIT_CONDITIONS_PATH=/m.test(content),
+      `${name}이 아직 운영 조건 파일을 가리킵니다`
+    );
+  }
+});
