@@ -44,14 +44,14 @@ function fakeQuery(responses) {
 
 // --- 모델을 가두는 설정 -------------------------------------------------------
 
-test('툴 0개·1턴·격리 모드로 호출한다', async () => {
+test('툴 0개·격리 모드로 호출한다', async () => {
   const query = fakeQuery([baseResult()]);
   await invokeOnce({ prompt: 'p', schema, query });
 
   const { options } = query.calls[0];
   assert.deepEqual(options.allowedTools, [], '툴을 열면 추출기가 아니라 에이전트가 된다');
   assert.equal(options.permissionMode, 'dontAsk');
-  assert.equal(options.maxTurns, 1);
+  assert.equal(options.maxTurns, 4, '구조화 출력 재시도가 필요한 실제 문서에서 1턴은 부족하다 (2026-09 재현)');
   assert.deepEqual(
     options.settingSources,
     [],

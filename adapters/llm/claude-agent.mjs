@@ -27,7 +27,12 @@ const SYSTEM_PROMPT = [
  *
  * - `allowedTools: []`  파일·bash 접근 차단. 모델이 "알아서" 뭔가 읽지 못하게
  * - `permissionMode: 'dontAsk'`  허용 목록 밖은 묻지 않고 거부
- * - `maxTurns: 1`  대화가 아니다
+ * - `maxTurns: 4`  대화는 아니지만, 구조화 출력을 한 번에 못 맞추면 SDK가 자체
+ *   재시도로 한 번 더 왕복한다(`error_max_structured_output_retries`). 작은 예시
+ *   커리큘럼은 1턴에 끝나지만 실제 제안서 PDF처럼 크고 복잡한 문서는 그 재시도가
+ *   필요해서 `maxTurns: 1`로는 "Reached maximum number of turns (1)"로 막혔다
+ *   (2026-09 실사용에서 재현). 에이전트 자율성을 막는 건 이 값이 아니라
+ *   `allowedTools: []`이므로, 턴 수를 늘려도 격리는 그대로 유지된다.
  * - `settingSources: []`  **SDK 격리 모드.** 이걸 빼면 `~/.claude/settings.json`,
  *   `.claude/settings.local.json`, CLAUDE.md를 읽어들여 **개발자의 로컬 설정이
  *   추출 결과에 새어 들어온다.** 같은 커리큘럼이 사람마다 다른 facts를 내는 원인이 된다.
@@ -35,7 +40,7 @@ const SYSTEM_PROMPT = [
 export const ISOLATION_OPTIONS = Object.freeze({
   allowedTools: [],
   permissionMode: 'dontAsk',
-  maxTurns: 1,
+  maxTurns: 4,
   settingSources: []
 });
 
