@@ -9,7 +9,20 @@
  * compares those and errors on a mismatch rather than silently overwriting.
  */
 
-import { normalizeRole, normalizeDisclosure } from './verify.mjs';
+/** Operating conditions may arrive from a spreadsheet in either vocabulary. */
+export function normalizeRole(value) {
+  const text = String(value).trim().toLowerCase();
+  if (['assistant', 'ta', '보조', '보조강사'].includes(text)) return '보조강사';
+  if (['lead', 'main', 'instructor', '주강사', '메인'].includes(text)) return '주강사';
+  return String(value).trim();
+}
+
+export function normalizeDisclosure(value) {
+  const text = String(value).trim().toLowerCase();
+  if (['approved', 'public', 'open', '공개'].includes(text)) return 'approved';
+  if (['hidden', 'private', 'anonymous', '비공개'].includes(text)) return 'hidden';
+  return String(value).trim();
+}
 
 /** condition key -> fact key. Only operational facts; never course content. */
 export const CONDITION_TO_FACT = {

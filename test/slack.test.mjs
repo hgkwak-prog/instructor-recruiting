@@ -83,25 +83,26 @@ test('파일 다운로드 실패를 HTTP 코드와 함께 알린다', async () =
   );
 });
 
-// --- 미리보기: 승인 버튼을 언제 띄우는가 --------------------------------------
+// --- 미리보기: 검산기가 없으므로 승인 버튼은 항상 뜬다 ---------------------------
 
-test('확인 필요 항목이 남으면 승인 버튼을 아예 띄우지 않는다', () => {
+test('확인 필요 항목이 남아도 승인 버튼은 뜬다 -- 정보성 안내일 뿐이다', () => {
+  // 검산기(core/verify.mjs)를 없앴다. "게시 가능" 판정 자체가 없으므로
+  // 코드가 승인을 막지 않는다. 사람이 pendingMarkers를 보고 판단한다.
   const { blocks } = buildPreviewMessage({
     runId: 'a'.repeat(36),
-    verification: verification({ postable: false, pendingMarkers: ['강사료', '지원 방법'] })
+    verification: verification({ pendingMarkers: ['강사료', '지원 방법'] })
   });
   const serialized = JSON.stringify(blocks);
-  assert.ok(!serialized.includes(APPROVE_ACTION), '누를 수 없는 버튼을 띄우면 안 됩니다');
+  assert.ok(serialized.includes(APPROVE_ACTION), '승인 버튼은 항상 떠야 합니다');
   assert.ok(serialized.includes('강사료'));
   assert.match(serialized, /확인 필요/);
 });
 
-test('게시 가능하면 승인·반려 버튼과 채널 선택이 붙는다', () => {
+test('승인·반려 버튼과 채널 선택이 항상 붙는다', () => {
   const { blocks } = buildPreviewMessage({
     runId: 'b'.repeat(36),
     verification: verification(),
-    defaultChannel: 'C0DEFAULT',
-    publishCheck: passed
+    defaultChannel: 'C0DEFAULT'
   });
   const serialized = JSON.stringify(blocks);
   for (const id of [APPROVE_ACTION, REJECT_ACTION, CHANNEL_SELECT_ACTION]) {
@@ -162,27 +163,25 @@ test('발급일을 모르면 null이다 — 모르는 것을 안다고 하지 �
 
 // --- 강사료 빈칸 게이트 (2026-08-24에 실사용에서 드러난 구멍) -------------------
 
-test('강사료 빈칸이 남으면 승인 버튼이 뜨지 않는다', () => {
-  // `______`는 [확인 필요] 마커가 아니라서 조립 시점 게이트(postable)를 그냥 지났다.
-  // CLI 시절엔 사람이 복붙하며 채웠으니 드러나지 않았고, 봇이 자동 게시하면서 터졌다.
+test('게시 전 처리가 필요한 항목이 있어도 승인·편집 버튼 모두 뜬다', () => {
+  // publish-guard(core/publish-guard.mjs)도 없앴다. 사람이 보고 판단한다.
   const { blocks } = buildPreviewMessage({
     runId: 'e'.repeat(36),
     verification: verification(),
-    publishCheck: { errors: ['본문에 빈칸(______)이 남아 있습니다.'], postable: false }
+    publishCheck: { errors: ['본문에 빈칸(______)이 남아 있습니다.'] }
   });
   const serialized = JSON.stringify(blocks);
-  assert.ok(!serialized.includes(APPROVE_ACTION), '빈칸이 남은 채로 승인할 수 있으면 안 됩니다');
-  assert.ok(serialized.includes(EDIT_ACTION), '대신 편집 버튼이 있어야 합니다');
+  assert.ok(serialized.includes(APPROVE_ACTION));
+  assert.ok(serialized.includes(EDIT_ACTION));
   assert.match(serialized, /빈칸/);
 });
 
-test('publishCheck를 안 넘기면 승인 버튼을 띄우지 않는다', () => {
-  // 실수로 검사를 빠뜨렸을 때 열려 있는 쪽으로 기울면 안 된다.
+test('publishCheck를 안 넘겨도 승인 버튼은 뜬다', () => {
   const { blocks } = buildPreviewMessage({ runId: 'f'.repeat(36), verification: verification() });
-  assert.ok(!JSON.stringify(blocks).includes(APPROVE_ACTION));
+  assert.ok(JSON.stringify(blocks).includes(APPROVE_ACTION));
 });
 
-test('편집 버튼은 승인 가능해진 뒤에도 남는다', () => {
+test('편집 버튼은 항상 남는다', () => {
   const { blocks } = buildPreviewMessage({
     runId: 'g'.repeat(36), verification: verification(), publishCheck: passed
   });

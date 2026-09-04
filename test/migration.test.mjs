@@ -70,16 +70,16 @@ test('the v0.2 "generated" status becomes review_pending', () => {
   assert.equal(getRun(db, 'old-1').status, STATUS.REVIEW_PENDING);
 });
 
-test('a migrated row cannot be approved -- it was built under the old contract', () => {
+test('a migrated row starts with postable=0, but the gate is gone -- it can still be approved', () => {
+  // 검산기(core/verify.mjs)가 없어지면서 "게시 가능" 판정 자체가 사라졌다.
+  // postable 컬럼은 옛 데이터 호환을 위해 남아 있을 뿐, 승인을 막지 않는다.
   const db = openDatabase(legacyDatabase());
   assert.equal(getRun(db, 'old-1').postable, 0, 'postable은 안전한 기본값 0이어야 합니다');
-  assert.throws(
-    () => reviewRun(db, {
-      id: 'old-1', decision: STATUS.APPROVED, reviewer: 'kyogoku',
-      reviewedAt: '2026-08-18T02:00:00.000Z'
-    }),
-    /승인할 수 없습니다/
-  );
+  const reviewed = reviewRun(db, {
+    id: 'old-1', decision: STATUS.APPROVED, reviewer: 'kyogoku',
+    reviewedAt: '2026-08-18T02:00:00.000Z'
+  });
+  assert.equal(reviewed.status, STATUS.APPROVED);
 });
 
 test('migration is idempotent', () => {

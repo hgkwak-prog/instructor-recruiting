@@ -3,10 +3,7 @@ import assert from 'node:assert/strict';
 import {
   spanMinutes, breakAnalysis, setupAnalysis, deriveRequiredQualifications, generalizeLocation
 } from '../core/derive.mjs';
-import { verifyResult } from '../core/verify.mjs';
-import { baseResult, baseFacts, fact } from './fixtures.mjs';
-
-const clean = { customerDisclosure: 'hidden' };
+import { baseFacts, fact } from './fixtures.mjs';
 
 test('spanMinutes parses a time range and rejects nonsense', () => {
   assert.equal(spanMinutes('10:00-17:00'), 420);
@@ -39,24 +36,16 @@ test('teaching longer than the class block is an overrun', () => {
   assert.equal(breakAnalysis({ dailySchedule: '10:00-15:00', hoursPerSession: 6 }).kind, 'overrun');
 });
 
-test('lunch produces a warning, not an error', () => {
-  const result = baseResult();
-  result.facts.dailySchedule = fact('10:00-17:00');
-  result.facts.hoursPerSession = fact(6);
-  result.facts.totalHours = fact(18);
-  const { errors, warnings } = verifyResult({ result, conditions: clean });
-  assert.deepEqual(errors, [], '점심 1시간은 오류가 아닙니다');
-  assert.ok(warnings.some((w) => w.includes('휴게시간')));
+test('lunch is classified as a break, not a contradiction', () => {
+  // 검산기(core/verify.mjs)가 없어졌으므로 breakAnalysis를 직접 확인한다.
+  const analysis = breakAnalysis({ dailySchedule: '10:00-17:00', hoursPerSession: 6 });
+  assert.equal(analysis.kind, 'break');
+  assert.equal(analysis.gap, 60);
 });
 
-test('an unexplained gap blocks the run', () => {
-  const result = baseResult();
-  result.facts.dailySchedule = fact('09:00-18:00');
-  result.facts.hoursPerSession = fact(5);
-  result.facts.totalHours = fact(15);
-  result.facts.workingHours = fact(null);
-  const { errors } = verifyResult({ result, conditions: clean });
-  assert.ok(errors.some((e) => e.includes('휴게시간으로 보기에 큽니다')));
+test('an implausibly large gap with no working-hours context is unexplained', () => {
+  const analysis = breakAnalysis({ dailySchedule: '09:00-18:00', hoursPerSession: 5 });
+  assert.equal(analysis.kind, 'unexplained');
 });
 
 test('setup time is the difference between working and class hours', () => {
@@ -66,11 +55,9 @@ test('setup time is the difference between working and class hours', () => {
   );
 });
 
-test('working hours shorter than class hours is an error', () => {
-  const result = baseResult();
-  result.facts.workingHours = fact('10:30-16:30');
-  const { errors } = verifyResult({ result, conditions: clean });
-  assert.ok(errors.some((e) => e.includes('근무 시간')));
+test('working hours shorter than class hours yields a negative extra', () => {
+  const setup = setupAnalysis({ dailySchedule: '10:00-17:00', workingHours: '10:30-16:30' });
+  assert.ok(setup.extra < 0, '근무 시간이 교육 시간보다 짧아야 합니다');
 });
 
 test('derivation returns nothing rather than guessing', () => {

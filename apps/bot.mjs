@@ -6,19 +6,18 @@
  *                                                → [승인] → 채널 게시
  *
  * 승인은 여기 버튼 하나뿐이다. CLI에는 승인 명령이 없다(설계서 §6.4).
- * 그리고 버튼은 권한이지 우회가 아니다 — `[확인 필요]`가 남은 초안은
- * 버튼을 눌러도 `reviewRun`이 거부한다.
+ * 검산기(core/verify.mjs)는 v1에서 없앴다 -- 모든 생성 결과는 무조건
+ * 검토대기로 들어가고, 사람이 눈으로 보고 승인 여부를 결정한다.
  */
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { App, LogLevel, SocketModeReceiver } from '@slack/bolt';
 
 import {
-  openDatabase, createRun, getRun, reviewRun, completeRun, updateDraft,
-  dueRuns, markFollowUpSent, recordOutcome, savePublishingInput, STATUS
+  openDatabase, createRun, getRun, reviewRun, completeRun, updateDraft, STATUS
 } from '../adapters/store/database.mjs';
 import { readSlackFile, rejectionMessage, shouldIntake } from '../adapters/slack/intake.mjs';
 import {
@@ -35,28 +34,14 @@ import {
 import {
   CompensationError, applyCompensationLine, buildCompensationLine
 } from '../core/compensation.mjs';
-import { checkPostText } from '../core/publish-guard.mjs';
-import {
-  CAREERDAY_ACTION, CAREERDAY_MODAL, OUTCOME_ACTION, OUTCOME_MODAL,
-  buildCareerdayModal, buildCareerdayReadyMessage, buildOutcomeModal,
-  buildOutcomeRecordedMessage, dispatchReminders, parseCareerdayModal, parseOutcomeModal
-} from '../adapters/slack/reminder.mjs';
-import {
-  CareerdayDraftError, buildCareerdayDraft, buildCareerdayFormPlan
-} from '../core/render/careerday.mjs';
-import { readReminderConfig } from '../adapters/reminder-config.mjs';
 import { createPublisher } from '../adapters/publisher/index.mjs';
 import { buildPrompt, writePromptFile } from '../adapters/llm/prompt.mjs';
 import { createExtractor, DEFAULT_MODEL } from '../adapters/llm/claude-agent.mjs';
-import { CallBudget, createSerialQueue } from '../adapters/llm/guards.mjs';
 import { startHealthServer, tokenDaysRemaining } from '../adapters/server/health.mjs';
-import { verifyResult } from '../core/verify.mjs';
+import { renderJobPost, pendingMarkers } from '../core/render/job-post.mjs';
 import { applyConditions } from '../core/conditions.mjs';
-import { buildReport } from '../core/report.mjs';
-import { businessDaysAfter, calendarDaysAfter, localDateKey } from '../core/dates.mjs';
 import { ensureDataDirectories } from '../core/paths.mjs';
 import { envNumber, envOr } from '../core/env.mjs';
-import { writeRunArtifacts } from '../adapters/run-artifacts.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const dataDirectory = envOr(process.env, 'RECRUIT_DATA_DIR', join(projectRoot, 'data'));
@@ -101,45 +86,27 @@ async function announceTarget(client, channelId, logger) {
 }
 
 /**
- * DB에 저장된 run으로부터 게시 검사와 미리보기를 다시 만든다.
- * 편집 전후로 같은 함수를 쓴다 — 화면과 검사가 어긋나지 않게 하려면 한 군데여야 한다.
+ * DB에 저장된 run으로부터 미리보기를 다시 만든다.
+ * 편집 전후로 같은 함수를 쓴다 — 화면이 어긋나지 않게 하려면 한 군데여야 한다.
  */
 function previewFor(run, { defaultChannel, warnings = [] }) {
   const result = JSON.parse(run.result_json ?? '{}');
   const facts = result.facts ?? {};
   const compensation = run.compensation_json ? JSON.parse(run.compensation_json) : null;
-  const publishCheck = checkPostText(run.job_post, {
-    expectedTotal: compensation?.total ?? null,
-    hourlyRate: compensation?.hourlyRate ?? null,
-    customerLabel: facts.customerLabel?.value ?? null,
-    customerHidden: (facts.customerDisclosure?.value ?? 'hidden') !== 'approved',
-    year: Number(facts.sessionDates?.value?.[0]?.slice(0, 4)) || null
-  });
   return {
     facts,
     compensation,
-    publishCheck,
     message: buildPreviewMessage({
       runId: run.id,
       verification: {
         slackJobPost: run.job_post,
-        pendingMarkers: [],
-        postable: Boolean(run.postable)
+        pendingMarkers: pendingMarkers(run.job_post ?? '')
       },
       warnings,
       defaultChannel,
-      publishCheck,
       compensation
     })
   };
-}
-
-/** 설정에 따라 영업일/달력일로 확인 예정일을 잡는다. */
-function dueDateFrom(completedAt, { waitDays, dayMode, timeZone }) {
-  const today = localDateKey(new Date(completedAt), timeZone);
-  return dayMode === 'calendar'
-    ? calendarDaysAfter(today, waitDays, timeZone)
-    : businessDaysAfter(today, waitDays, timeZone);
 }
 
 /**
@@ -199,7 +166,6 @@ async function main() {
 
   const db = openDatabase(join(dataDirectory, 'recruitment.sqlite'));
   assertNoConditionsFile();
-  const reminderConfig = readReminderConfig();
   const pendingIntake = createPendingIntake();
   // 지난 입력을 기억해 다음 건에서 다시 치지 않게 한다. 대부분 장소·지원방법이 같다.
   // **사람이 실제로 친 값만** 들어온다. 어떤 기본값도 미리 채우지 않는다 —
@@ -226,13 +192,8 @@ async function main() {
     client: app.client,
     defaultChannel
   });
-  const queue = createSerialQueue();
-  const budget = new CallBudget({
-    path: join(dataDirectory, 'call-budget.json'),
-    limit: envNumber(process.env, 'RECRUIT_DAILY_CALL_LIMIT', 30)
-  });
-  const extractor = await createExtractor({ queue });
-  console.log(`Claude 인증: ${extractor.auth.credential} / 모델 ${DEFAULT_MODEL} / 오늘 남은 호출 ${budget.remaining()}건\n`);
+  const extractor = await createExtractor();
+  console.log(`Claude 인증: ${extractor.auth.credential} / 모델 ${DEFAULT_MODEL}\n`);
 
   // --- 인테이크 -------------------------------------------------------------
   app.event('message', async ({ event, client, logger }) => {
@@ -326,54 +287,42 @@ async function main() {
       const conditions = operations;
       const prompt = buildPrompt({ projectRoot, curriculum, conditions, schema });
       writePromptFile({ prompt, runDirectory });
-      writeRunArtifacts(runDirectory, { curriculum, conditions, schema });
 
-      const { result } = await extractor.extract({ prompt, schema, model: DEFAULT_MODEL, budget });
+      const { result } = await extractor.extract({ prompt, schema, model: DEFAULT_MODEL });
 
       // override: 커리큘럼에 값이 있어도 담당자 입력이 이긴다.
       const applied = applyConditions(result.facts, conditions, { override: true });
       result.facts = applied.facts;
 
-      const verification = verifyResult({ result, conditions });
+      // 공고 본문은 여기서 사실로부터 조립된다. 모델은 본문을 쓴 적이 없다.
+      const jobPost = renderJobPost(result.facts);
+      const markers = pendingMarkers(jobPost);
       const generatedAt = new Date().toISOString();
-      const reportPath = join(dataDirectory, 'reports', `${runId}.html`);
-      writeRunArtifacts(runDirectory, { result, verification });
-      writeFileSync(reportPath, buildReport({ runId, result, verification, generatedAt, sourcePath: pending.file.name }));
 
-      if (verification.errors.length > 0) {
-        // 검증에 실패한 생성은 DB에 들어가지 않는다. 승인 대상이 될 수 없다는 뜻이다.
-        await client.chat.postMessage({
-          channel: event.channel,
-          text: `검산에서 막혔습니다. 기록하지 않았습니다.\n${verification.errors.map((e) => `• ${e}`).join('\n')}`
-        });
-        return;
-      }
-
+      // 검산기가 없으므로 모든 생성 결과는 무조건 검토대기로 기록한다.
       createRun(db, {
         id: runId,
         sourcePath: pending.file.name,
         courseTitle: result.facts.courseTitle.value,
         role: result.facts.role.value,
         result,
-        jobPost: verification.slackJobPost,
-        postable: verification.postable,
+        jobPost,
         generatedAt,
         createdByUserId: pending.user
       });
 
       const warnings = [
-        ...verification.warnings,
         ...(result.warnings ?? []),
         ...applied.overridden.map(({ key, from, to }) => `${key}: 원문 "${from}" → 입력 "${to}"`)
       ];
-      const publishCheck = checkPostText(verification.slackJobPost, {
-        customerLabel: result.facts.customerLabel?.value ?? null,
-        customerHidden: (result.facts.customerDisclosure?.value ?? 'hidden') !== 'approved',
-        year: Number(result.facts.sessionDates?.value?.[0]?.slice(0, 4)) || null
-      });
       await client.chat.postMessage({
         channel: event.channel,
-        ...buildPreviewMessage({ runId, verification, warnings, defaultChannel, publishCheck })
+        ...buildPreviewMessage({
+          runId,
+          verification: { slackJobPost: jobPost, pendingMarkers: markers },
+          warnings,
+          defaultChannel
+        })
       });
     } catch (error) {
       logger.error(error);
@@ -437,16 +386,7 @@ async function main() {
         return ack(modalErrors([error.message]));
       }
 
-      // 손으로 고친 글도 같은 검사를 통과해야 한다.
-      const check = checkPostText(merged, {
-        expectedTotal: fee.total,
-        hourlyRate: fee.hourlyRate,
-        customerLabel: facts.customerLabel?.value ?? null,
-        customerHidden: (facts.customerDisclosure?.value ?? 'hidden') !== 'approved',
-        year: Number(facts.sessionDates?.value?.[0]?.slice(0, 4)) || null
-      });
-      if (!check.postable) return ack(modalErrors(check.errors));
-
+      // 검산기가 없으니 그대로 저장한다 — 본문 검토는 승인 화면에서 사람이 한다.
       await ack();
       const saved = updateDraft(db, {
         id: runId,
@@ -471,22 +411,11 @@ async function main() {
     const runId = action.value;
     const approver = body.user.id;
     try {
-      // 나갈 글자 그대로를 마지막으로 한 번 더 본다. 미리보기를 만든 뒤
-      // 무언가 바뀌었을 수 있고, 게시는 되돌릴 수 없다.
-      const pending = getRun(db, runId);
-      const { publishCheck } = previewFor(pending, { defaultChannel });
-      if (!publishCheck.postable) {
-        throw new Error(`게시 검사를 통과하지 못했습니다:\n${publishCheck.errors.map((e) => `• ${e}`).join('\n')}`);
-      }
-
-      // 게이트가 여기 있다. postable=0이면 던진다.
-      // 경고는 막지 않지만, 무엇을 보고도 눌렀는지는 남긴다.
       reviewRun(db, {
         id: runId,
         decision: STATUS.APPROVED,
         reviewer: approver,
-        reviewedAt: new Date().toISOString(),
-        acknowledgedWarnings: publishCheck.warnings
+        reviewedAt: new Date().toISOString()
       });
 
       const run = getRun(db, runId);
@@ -497,7 +426,7 @@ async function main() {
       completeRun(db, {
         id: runId,
         completedAt,
-        followUpDueAt: dueDateFrom(completedAt, reminderConfig),
+        followUpDueAt: null,
         slackChannelId: posted.channel,
         slackMessageTs: posted.messageTs,
         slackPermalink: posted.permalink
@@ -540,123 +469,6 @@ async function main() {
     }
   });
 
-  // --- 3영업일 현황 확인 ------------------------------------------------------
-  app.action(OUTCOME_ACTION, async ({ ack, body, action, client, logger }) => {
-    await ack();
-    try {
-      const run = getRun(db, action.value);
-      if (!run) throw new Error(`작업을 찾을 수 없습니다: ${action.value}`);
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: {
-          ...buildOutcomeModal({ run }),
-          private_metadata: JSON.stringify({
-            runId: run.id, channel: body.channel.id, ts: body.message.ts
-          })
-        }
-      });
-    } catch (error) {
-      logger.error(error);
-    }
-  });
-
-  app.view(OUTCOME_MODAL, async ({ ack, view, client, logger }) => {
-    await ack();
-    const { runId, slackApplicants, finalChannel } = parseOutcomeModal(view);
-    const { channel, ts } = JSON.parse(view.private_metadata);
-    try {
-      recordOutcome(db, { id: runId, slackApplicants, finalChannel });
-      const run = getRun(db, runId);
-      await client.chat.update({
-        channel, ts, ...buildOutcomeRecordedMessage({ run, slackApplicants, finalChannel })
-      });
-    } catch (error) {
-      logger.error(error);
-      await client.chat.postMessage({ channel, thread_ts: ts, text: `기록에 실패했습니다: ${error.message}` });
-    }
-  });
-
-  // --- 커리어데이 에스컬레이션 -------------------------------------------------
-  /** DB 행에서 커리어데이 초안을 만든다. 값의 출처를 한 군데로 모은다. */
-  const careerdayDraftFor = (run) => buildCareerdayDraft({
-    runId: run.id,
-    facts: JSON.parse(run.result_json ?? '{}').facts ?? {},
-    jobPost: run.job_post,
-    compensation: run.compensation_json ? JSON.parse(run.compensation_json) : null,
-    publishingInput: run.publishing_input_json ? JSON.parse(run.publishing_input_json) : {}
-  });
-
-  app.action(CAREERDAY_ACTION, async ({ ack, body, action, client, logger }) => {
-    await ack();
-    try {
-      const run = getRun(db, action.value);
-      if (!run) throw new Error(`작업을 찾을 수 없습니다: ${action.value}`);
-      let draft = null;
-      try {
-        draft = careerdayDraftFor(run);
-      } catch (error) {
-        // 모순이 있으면 초안이 안 만들어진다. 그래도 모달은 열어 고칠 기회를 준다.
-        if (!(error instanceof CareerdayDraftError)) throw error;
-        logger.warn(error.message);
-      }
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: {
-          ...buildCareerdayModal({ run, draft }),
-          private_metadata: JSON.stringify({
-            runId: run.id, channel: body.channel.id, ts: body.message.ts
-          })
-        }
-      });
-    } catch (error) {
-      logger.error(error);
-    }
-  });
-
-  app.view(CAREERDAY_MODAL, async ({ ack, view, client, logger }) => {
-    const { runId, deadline, venueAddress } = parseCareerdayModal(view);
-    const { channel, ts } = JSON.parse(view.private_metadata);
-    try {
-      savePublishingInput(db, { id: runId, publishingInput: { deadline, venueAddress } });
-      const run = getRun(db, runId);
-      // 폼을 열기 전에 여기서 막는다. 브라우저를 띄운 뒤 값이 없다고 하면 늦다.
-      const plan = buildCareerdayFormPlan(careerdayDraftFor(run));
-      await ack();
-      await client.chat.update({ channel, ts, ...buildCareerdayReadyMessage({ run, plan }) });
-    } catch (error) {
-      logger.error(error);
-      await ack();
-      await client.chat.postMessage({
-        channel, thread_ts: ts, text: `커리어데이 준비에 실패했습니다: ${error.message}`
-      });
-    }
-  });
-
-  const reminderTimer = setInterval(async () => {
-    try {
-      const sent = await dispatchReminders({
-        db,
-        today: localDateKey(new Date(), reminderConfig.timeZone),
-        waitDays: reminderConfig.waitDays,
-        dueRuns,
-        markFollowUpSent,
-        send: async ({ userId, message }) => {
-          // DM 채널을 열어야 사람에게 직접 간다. 게시 채널에 쓰면 소음이 된다.
-          const opened = await app.client.conversations.open({ users: userId });
-          await app.client.chat.postMessage({ channel: opened.channel.id, ...message });
-        }
-      });
-      if (sent.length > 0) console.log(`현황 확인 알림 ${sent.length}건 발송`);
-    } catch (error) {
-      console.error(`알림 주기 실행 실패: ${error.message}`);
-    }
-  }, reminderConfig.pollMs);
-  reminderTimer.unref?.();
-  console.log(
-    `현황 확인: ${reminderConfig.waitDays}${reminderConfig.dayMode === 'calendar' ? '일' : '영업일'} 후, `
-    + `${reminderConfig.pollMs / 60000}분마다 확인`
-  );
-
   // --- 상태 확인과 정상 종료 --------------------------------------------------
   let shuttingDown = false;
   const health = startHealthServer({
@@ -672,7 +484,6 @@ async function main() {
     process.on(signal, async () => {
       shuttingDown = true;
       console.log(`\n${signal} — 종료합니다.`);
-      clearInterval(reminderTimer);
       health.close();
       await app.stop().catch(() => {});
       db.close?.();

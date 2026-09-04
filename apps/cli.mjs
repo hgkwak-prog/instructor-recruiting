@@ -10,20 +10,19 @@
  * 승인은 Slack 버튼 하나로 간다(설계서 §6.4).
  */
 import 'dotenv/config';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { openDatabase, createRun, getRun, listRuns, STATUS, STATUS_LABELS } from '../adapters/store/database.mjs';
+import {
+  openDatabase, createRun, getRun, listRuns, savePublishingInput, STATUS, STATUS_LABELS
+} from '../adapters/store/database.mjs';
 import { readSourceAsync, readJson } from '../adapters/documents/files.mjs';
 import { buildPrompt, writePromptFile } from '../adapters/llm/prompt.mjs';
 import { createExtractor, DEFAULT_MODEL } from '../adapters/llm/claude-agent.mjs';
-import { CallBudget, createSerialQueue } from '../adapters/llm/guards.mjs';
-import { verifyResult } from '../core/verify.mjs';
+import { renderJobPost, pendingMarkers } from '../core/render/job-post.mjs';
 import { applyConditions } from '../core/conditions.mjs';
-import { buildReport } from '../core/report.mjs';
+import { buildCareerdayDraft, buildCareerdayFormPlan } from '../core/render/careerday.mjs';
 import { DATA_SUBDIRS, ensureDataDirectories } from '../core/paths.mjs';
-import { envNumber } from '../core/env.mjs';
-import { writeRunArtifacts } from '../adapters/run-artifacts.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 const dataDirectory = join(projectRoot, 'data');
@@ -36,8 +35,7 @@ const MOVED_TO_SLACK = {
   reject: '반려',
   'mark-complete': '게시 완료 기록',
   outcome: '성과 기록',
-  'due-reminders': '현황 확인 알림',
-  sync: '시트 동기화'
+  'due-reminders': '현황 확인 알림'
 };
 
 export function parseArgs(argv) {
@@ -61,11 +59,12 @@ function help() {
     '  recruit generate --source <파일> [--conditions <json>] [--dry-run] [--model <id>]',
     '  recruit list [--status review_pending]',
     '  recruit show --run-id <id>',
+    '  recruit careerday-prepare --run-id <id> --deadline <YYYY-MM-DD> [--address <text>]',
     '',
     '  --dry-run     모델을 부르지 않고 실제로 보낼 프롬프트만 남깁니다.',
     '                SKILL.md 규칙을 고친 뒤 무엇이 주입되는지 확인할 때.',
     '  --conditions  생략하면 추출만 합니다. 커리큘럼만으로 모델이 무엇을 뽑는지',
-    '                볼 때 쓰세요. 공고에는 [확인 필요]가 남고 승인은 막힙니다.',
+    '                볼 때 쓰세요. 공고에는 [확인 필요]가 남을 수 있습니다.',
     '',
     '승인부터는 Slack에서 합니다 (P3에서 붙습니다).',
     '',
@@ -77,7 +76,9 @@ function help() {
 /**
  * `context`는 테스트 이음새다. 기본값이 운영 경로이고, 테스트는 임시 디렉터리와
  * 가짜 추출기를 넣어 **모델을 부르지 않고** 파이프라인 전체를 돌린다.
- * 여기서 지켜야 할 불변식이 하나 있다 — 검증에 실패한 생성은 DB에 들어가지 않는다.
+ *
+ * 검산기가 없으므로 생성된 결과는 항상 검토대기로 기록된다 — 승인 여부는
+ * 사람이 눈으로 보고 정한다.
  */
 export async function generate(db, options, context = {}) {
   const {
@@ -99,8 +100,8 @@ export async function generate(db, options, context = {}) {
   // 보인다. 흐름을 검수할 때는 이쪽이 낫다. 있지도 않은 운영값을 지어내 넣으면
   // 관찰하려는 것을 오염시키기 때문이다.
   //
-  // 그 대신 공고에는 `[확인 필요]`가 남고 승인은 막힌다. 그게 맞다 —
-  // 장소도 지원 방법도 모르는 공고를 내보낼 수는 없다.
+  // 그 대신 공고에는 `[확인 필요]`가 남을 수 있다. 장소도 지원 방법도 모르는
+  // 채로 남을 수 있다는 뜻이고, 승인 여부는 사람이 보고 정한다.
   const conditions = options.conditions ? await readJson(resolve(options.conditions)) : {};
   const schema = JSON.parse(readFileSync(schemaFile, 'utf8'));
 
@@ -111,8 +112,6 @@ export async function generate(db, options, context = {}) {
 
   if (options['dry-run']) {
     // 모델을 부르지 않는다. 이 run은 DB에도 들어가지 않는다.
-    // 스키마도 남긴다 — 항목별 지시는 프롬프트가 아니라 스키마의 description에 있다.
-    writeRunArtifacts(runDirectory, { curriculum, conditions, schema });
     log(JSON.stringify({
       runId, dryRun: true, promptPath, promptBytes: Buffer.byteLength(prompt)
     }, null, 2));
@@ -120,17 +119,13 @@ export async function generate(db, options, context = {}) {
   }
 
   const model = typeof options.model === 'string' ? options.model : DEFAULT_MODEL;
-  const budget = new CallBudget({
-    path: join(dataDir, 'call-budget.json'),
-    limit: envNumber(process.env, 'RECRUIT_DAILY_CALL_LIMIT', 30)
-  });
-  const extractor = injectedExtractor ?? await createExtractor({ queue: createSerialQueue() });
-  warn(`모델 ${model} 호출 (인증: ${extractor.auth.credential}, 오늘 남은 호출 ${budget.remaining()}건)`);
+  const extractor = injectedExtractor ?? await createExtractor();
+  warn(`모델 ${model} 호출 (인증: ${extractor.auth.credential})`);
   if (!options.conditions) {
-    warn('운영사항 없이 추출만 합니다. 공고에는 [확인 필요]가 남고 승인은 막힙니다.');
+    warn('운영사항 없이 추출만 합니다. 공고에는 [확인 필요]가 남을 수 있습니다.');
   }
 
-  const { result, attempts, usages } = await extractor.extract({ prompt, schema, model, budget });
+  const { result, attempts, usages } = await extractor.extract({ prompt, schema, model });
 
   // 운영 조건은 담당자의 선언이다. 모델이 비워 둔 항목은 코드가 채운다.
   // 봇의 모달과 같은 의미다 — 실행할 때 사람이 명시적으로 준 값이므로
@@ -145,21 +140,9 @@ export async function generate(db, options, context = {}) {
   }
 
   // 공고 본문은 여기서 사실로부터 조립된다. 모델은 본문을 쓴 적이 없다.
-  const verification = verifyResult({ result, conditions });
+  const jobPost = renderJobPost(result.facts);
+  const pending = pendingMarkers(jobPost);
   const generatedAt = new Date().toISOString();
-  const reportPath = join(dataDir, 'reports', `${runId}.html`);
-
-  writeRunArtifacts(runDirectory, { curriculum, conditions, schema, result, verification });
-  writeFileSync(reportPath, buildReport({ runId, result, verification, generatedAt, sourcePath }));
-
-  if (verification.errors.length > 0) {
-    // 검증에 실패한 생성은 어떤 상태도 갖지 않는다. DB에 없으므로 승인 대상이 될 수 없다.
-    warn(`검증 실패로 기록하지 않았습니다 (run ${runId})`);
-    for (const error of verification.errors) warn(`  - ${error}`);
-    warn(`검토 리포트: ${reportPath}`);
-    process.exitCode = 1;
-    return { runId, recorded: false, errors: verification.errors, reportPath };
-  }
 
   createRun(db, {
     id: runId,
@@ -167,8 +150,7 @@ export async function generate(db, options, context = {}) {
     courseTitle: result.facts.courseTitle.value,
     role: result.facts.role.value,
     result,
-    jobPost: verification.slackJobPost,
-    postable: verification.postable,
+    jobPost,
     generatedAt
   });
 
@@ -177,16 +159,54 @@ export async function generate(db, options, context = {}) {
     status: STATUS_LABELS[STATUS.REVIEW_PENDING],
     model,
     attempts,
-    postable: verification.postable,
-    pending: verification.pendingMarkers,
-    warnings: [...verification.warnings, ...(result.warnings ?? [])],
+    pending,
+    warnings: result.warnings ?? [],
     // 청구액이 아니라 토큰 소비량의 대리 지표다 (README 참고).
-    estimatedCostUsd: usages.reduce((sum, usage) => sum + (usage.estimatedCostUsd ?? 0), 0),
-    reportPath
+    estimatedCostUsd: usages.reduce((sum, usage) => sum + (usage.estimatedCostUsd ?? 0), 0)
   };
   log(JSON.stringify(summary, null, 2));
-  log(`\n검토 리포트를 브라우저로 여세요:\n  open ${reportPath}`);
   return { ...summary, recorded: true };
+}
+
+/**
+ * 커리어데이 준비. 원래 슬랙 리마인더 안에서만 노출되던 진입점이다 —
+ * 리마인더를 없애면서 CLI 명령으로 옮겼다(v1 확정 결정).
+ *
+ * bot.mjs의 CAREERDAY_MODAL 뷰 핸들러가 하던 것과 동일하게 동작한다.
+ */
+export async function careerdayPrepare(db, options, context = {}) {
+  const { log = console.log } = context;
+  if (!options['run-id']) throw new Error('--run-id가 필요합니다.');
+  if (!options.deadline) throw new Error('--deadline이 필요합니다 (YYYY-MM-DD).');
+
+  const runId = options['run-id'];
+  const deadline = options.deadline;
+  const venueAddress = typeof options.address === 'string' ? options.address : null;
+
+  savePublishingInput(db, { id: runId, publishingInput: { deadline, venueAddress } });
+  const run = getRun(db, runId);
+  if (!run) throw new Error(`작업을 찾을 수 없습니다: ${runId}`);
+
+  const draft = buildCareerdayDraft({
+    runId: run.id,
+    facts: JSON.parse(run.result_json ?? '{}').facts ?? {},
+    jobPost: run.job_post,
+    compensation: run.compensation_json ? JSON.parse(run.compensation_json) : null,
+    publishingInput: { deadline, venueAddress }
+  });
+  const plan = buildCareerdayFormPlan(draft);
+
+  const amount = Number(plan.compensation.totalAmount).toLocaleString('ko-KR');
+  log([
+    `커리어데이 준비 완료 (${run.id.slice(0, 8)})`,
+    plan.title,
+    `일정 ${plan.workStartDate} ~ ${plan.workEndDate} / 마감 ${plan.recruitmentDeadline}`,
+    `${plan.region} · ${plan.headcount}명 · ${plan.compensation.count}${plan.compensation.unit}에 ${amount}원`,
+    '',
+    `아래를 실행하면 등록 화면이 열리고 자동으로 채워집니다:`,
+    `  npm run careerday -- fill ${run.id}`
+  ].join('\n'));
+  return { runId: run.id, plan };
 }
 
 async function main() {
@@ -214,6 +234,8 @@ async function main() {
 
   if (command === 'generate') return generate(db, options);
 
+  if (command === 'careerday-prepare') return careerdayPrepare(db, options);
+
   if (command === 'list') {
     const runs = listRuns(db, typeof options.status === 'string' ? options.status : null);
     console.log(JSON.stringify(runs.map((run) => ({
@@ -221,7 +243,6 @@ async function main() {
       status: STATUS_LABELS[run.status] ?? run.status,
       role: run.role,
       courseTitle: run.course_title,
-      postable: Boolean(run.postable),
       generatedAt: run.generated_at
     })), null, 2));
     return;

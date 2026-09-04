@@ -147,6 +147,11 @@ export function openDatabase(path) {
   return db;
 }
 
+/**
+ * 검산기가 없어지면서 "게시 가능(postable)" 판정 자체가 사라졌다. 모든 생성 결과는
+ * 무조건 검토대기로 들어가고, 사람이 눈으로 보고 승인 여부를 결정한다.
+ * `postable` 컬럼은 옛 데이터와의 호환을 위해 남기되 항상 1로 기록한다.
+ */
 export function createRun(db, run) {
   db.prepare(`INSERT INTO recruitment_runs
     (id, source_path, course_title, role, status, result_json, job_post, postable, generated_at,
@@ -155,7 +160,7 @@ export function createRun(db, run) {
     .run(
       run.id, run.sourcePath, run.courseTitle ?? null, run.role ?? null,
       STATUS.REVIEW_PENDING, JSON.stringify(run.result), run.jobPost,
-      run.postable ? 1 : 0, run.generatedAt,
+      1, run.generatedAt,
       run.createdByUserId ?? null
     );
 }
@@ -171,18 +176,15 @@ export function listRuns(db, status = null) {
 }
 
 /**
- * The single approval gate. Only a run in review_pending can be approved, and a
- * run whose draft still has unfilled [확인 필요] markers cannot be approved at
- * all -- posting it would publish a placeholder.
+ * The single approval gate. Only a run in review_pending can be approved.
+ * 검산기가 없는 지금은 "게시 가능" 여부를 코드가 판정하지 않는다 -- 확인 필요
+ * 항목이 남아 있어도 승인을 막지 않는다. 눈으로 보고 승인하는 사람의 몫이다.
  */
 export function reviewRun(db, { id, decision, reviewer, note, reviewedAt, acknowledgedWarnings = [] }) {
   const run = getRun(db, id);
   if (!run) throw new Error(`작업을 찾을 수 없습니다: ${id}`);
   if (run.status !== STATUS.REVIEW_PENDING) {
     throw new Error(`검토대기 상태가 아닙니다 (현재: ${STATUS_LABELS[run.status] ?? run.status})`);
-  }
-  if (decision === STATUS.APPROVED && !run.postable) {
-    throw new Error('초안에 [확인 필요] 항목이 남아 있어 승인할 수 없습니다. 조건을 채워 다시 생성하세요.');
   }
   const { changes } = db.prepare(`UPDATE recruitment_runs
     SET status = ?, reviewed_at = ?, reviewed_by = ?, review_note = ?, acknowledged_warnings = ?

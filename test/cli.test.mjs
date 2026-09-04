@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generate, parseArgs } from '../apps/cli.mjs';
-import { openDatabase, listRuns } from '../adapters/store/database.mjs';
+import { careerdayPrepare, generate, parseArgs } from '../apps/cli.mjs';
+import { openDatabase, listRuns, getRun, updateDraft } from '../adapters/store/database.mjs';
 import { ensureDataDirectories } from '../core/paths.mjs';
 import { baseResult } from './fixtures.mjs';
 
@@ -72,13 +72,12 @@ test('--dry-run은 모델을 부르지 않고 프롬프트만 남긴다', async 
   assert.deepEqual(listRuns(db), [], 'dry-run은 DB에 들어가면 안 됩니다');
 });
 
-test('생성이 끝나면 검토대기로 기록되고 리포트가 나온다', async () => {
+test('생성이 끝나면 검토대기로 기록된다', async () => {
   const { db, options, context } = workspace();
   const outcome = await generate(db, options, { ...context, extractor: fakeExtractor(baseResult()) });
 
   assert.equal(outcome.recorded, true);
   assert.equal(outcome.status, '검토대기');
-  assert.ok(existsSync(outcome.reportPath));
 
   const runs = listRuns(db);
   assert.equal(runs.length, 1);
@@ -86,31 +85,12 @@ test('생성이 끝나면 검토대기로 기록되고 리포트가 나온다', 
   assert.equal(runs[0].status, 'review_pending');
 });
 
-test('검증에 실패한 생성은 DB에 들어가지 않는다', async () => {
-  // 이 레포의 핵심 불변식이다. DB에 없으면 승인 대상이 될 수 없다.
-  // 리포트는 남겨야 한다 — 무엇이 왜 막혔는지 사람이 봐야 하기 때문이다.
-  const broken = baseResult();
-  broken.facts.totalHours.value = 999; // 시수 합계가 회차·시간과 안 맞는다
-
-  const { db, options, context } = workspace();
-  const previousExitCode = process.exitCode;
-  const outcome = await generate(db, options, { ...context, extractor: fakeExtractor(broken) });
-  process.exitCode = previousExitCode;
-
-  assert.equal(outcome.recorded, false);
-  assert.ok(outcome.errors.length > 0);
-  assert.ok(existsSync(outcome.reportPath), '실패해도 검토 리포트는 남아야 합니다');
-  assert.deepEqual(listRuns(db), []);
-});
-
-test('run 디렉터리에 결과와 검증 로그를 남긴다', async () => {
+test('생성이 끝나면 프롬프트를 run 디렉터리에 남긴다', async () => {
   const { db, options, context, dataDirectory } = workspace();
   const outcome = await generate(db, options, { ...context, extractor: fakeExtractor(baseResult()) });
 
   const runDirectory = join(dataDirectory, 'runs', outcome.runId);
-  for (const name of ['prompt.txt', 'result.json', 'verification.json']) {
-    assert.ok(existsSync(join(runDirectory, name)), `${name}이 없습니다`);
-  }
+  assert.ok(existsSync(join(runDirectory, 'prompt.txt')), 'prompt.txt가 없습니다');
 });
 
 test('--source가 없으면 거부한다', async () => {
@@ -131,8 +111,8 @@ test('--conditions 없이도 돈다 — 추출만 보고 싶을 때가 있다', 
   assert.ok(outcome.runId);
 });
 
-test('운영사항이 없으면 공고가 승인 가능해지지 않는다', async () => {
-  // 장소도 지원 방법도 모르는 공고를 내보낼 수는 없다.
+test('운영사항이 없으면 공고에 확인 필요 항목이 남는다', async () => {
+  // 장소도 지원 방법도 모르는 채로 남을 수 있다는 뜻이고, 승인 여부는 사람이 본다.
   const bare = baseResult();
   for (const key of ['location', 'applicationMethod']) {
     bare.facts[key] = { value: null, evidence: null };
@@ -141,8 +121,8 @@ test('운영사항이 없으면 공고가 승인 가능해지지 않는다', asy
   const outcome = await generate(
     db, { source: options.source }, { ...context, extractor: fakeExtractor(bare) }
   );
-  assert.equal(outcome.postable, false);
   assert.ok(outcome.pending.length > 0, '[확인 필요]가 남아야 합니다');
+  assert.equal(outcome.recorded, true, '확인 필요 항목이 있어도 검토대기로 기록됩니다');
 });
 
 test('모델에게 보낸 프롬프트와 스키마가 추출기에 그대로 전달된다', async () => {
@@ -153,5 +133,36 @@ test('모델에게 보낸 프롬프트와 스키마가 추출기에 그대로 �
   const [call] = extractor.calls;
   assert.equal(call.model, 'claude-opus-5');
   assert.match(call.prompt, /## Rules/, 'SKILL.md 규칙이 프롬프트에 들어가야 합니다');
-  assert.ok(call.budget, '일일 상한이 연결돼야 합니다');
+});
+
+// --- 커리어데이 준비 (v1: 슬랙 리마인더 대신 CLI 명령) -----------------------------
+
+test('careerday-prepare는 담당자 입력을 저장하고 폼 값을 계산한다', async () => {
+  const { db, options, context } = workspace();
+  const generated = await generate(db, options, { ...context, extractor: fakeExtractor(baseResult()) });
+  // 보상금은 슬랙 편집 모달 단계에서 이미 확정돼 있어야 폼이 채워진다.
+  updateDraft(db, {
+    id: generated.runId,
+    jobPost: getRun(db, generated.runId).job_post,
+    compensation: { mode: 'total', amount: 1_000_000, total: 1_000_000, hourlyRate: null, line: '강사료 : 총 1,000,000원' }
+  });
+
+  const outcome = await careerdayPrepare(db, {
+    'run-id': generated.runId,
+    deadline: '2026-08-20',
+    address: '서울시 강남구 테헤란로 123'
+  }, context);
+
+  assert.equal(outcome.runId, generated.runId);
+  assert.ok(outcome.plan.title);
+  const run = getRun(db, generated.runId);
+  const publishingInput = JSON.parse(run.publishing_input_json);
+  assert.equal(publishingInput.deadline, '2026-08-20');
+  assert.equal(publishingInput.venueAddress, '서울시 강남구 테헤란로 123');
+});
+
+test('careerday-prepare는 --run-id와 --deadline을 요구한다', async () => {
+  const { db, context } = workspace();
+  await assert.rejects(careerdayPrepare(db, {}, context), /--run-id가 필요합니다/);
+  await assert.rejects(careerdayPrepare(db, { 'run-id': 'x' }, context), /--deadline이 필요합니다/);
 });

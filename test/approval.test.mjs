@@ -43,10 +43,12 @@ test('approval records who and when', () => {
   assert.equal(saved.review_note, '확인함');
 });
 
-test('a draft with unfilled markers cannot be approved', () => {
+test('a draft with unfilled markers can still be approved -- there is no verifier to gate it', () => {
+  // 검산기(core/verify.mjs)를 없앴다. [확인 필요] 항목이 남아 있어도 코드가
+  // 승인을 막지 않는다 -- 눈으로 보고 승인하는 사람의 몫이다.
   const { db } = seed({ postable: false });
-  assert.throws(() => approve(db), /\[확인 필요\] 항목이 남아/);
-  assert.equal(getRun(db, 'run-1').status, STATUS.REVIEW_PENDING);
+  const saved = approve(db);
+  assert.equal(saved.status, STATUS.APPROVED);
 });
 
 test('an unapproved run cannot be marked complete', () => {

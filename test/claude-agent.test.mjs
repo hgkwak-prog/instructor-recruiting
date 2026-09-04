@@ -9,9 +9,6 @@ import {
   extractFacts,
   invokeOnce
 } from '../adapters/llm/claude-agent.mjs';
-import { CallBudget, CallBudgetExceededError } from '../adapters/llm/guards.mjs';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { baseResult } from './fixtures.mjs';
 
 const projectRoot = join(import.meta.dirname, '..');
@@ -195,28 +192,3 @@ test('사용량을 돌려준다 — 토큰 소비량을 견주려면 필요하�
   assert.equal(usages[0].turns, 1);
 });
 
-// --- 한도 연동 ---------------------------------------------------------------
-
-test('재시도도 한도를 태운다', async () => {
-  // 실패한 호출도 토큰을 쓴다. 성공한 것만 세면 한도가 새 나간다.
-  const path = join(mkdtempSync(join(tmpdir(), 'agent-budget-')), 'call-budget.json');
-  const budget = new CallBudget({ path, limit: 10 });
-  const broken = baseResult();
-  delete broken.facts.objectives;
-
-  await extractFacts({ prompt: 'p', schema, query: fakeQuery([broken, baseResult()]), budget });
-  assert.equal(budget.used(), 2);
-});
-
-test('한도를 넘으면 모델을 부르기 전에 멈춘다', async () => {
-  const path = join(mkdtempSync(join(tmpdir(), 'agent-budget-stop-')), 'call-budget.json');
-  const budget = new CallBudget({ path, limit: 1 });
-  budget.consume();
-
-  const query = fakeQuery([baseResult()]);
-  await assert.rejects(
-    extractFacts({ prompt: 'p', schema, query, budget }),
-    CallBudgetExceededError
-  );
-  assert.equal(query.calls.length, 0, '한도를 넘었으면 호출 자체가 나가면 안 됩니다');
-});

@@ -1,9 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyConditions, CONDITION_TO_FACT } from '../core/conditions.mjs';
-import { verifyResult } from '../core/verify.mjs';
+import { applyConditions, CONDITION_TO_FACT, normalizeRole, normalizeDisclosure } from '../core/conditions.mjs';
 import { deriveResponsibilities, DEFAULT_RESPONSIBILITIES } from '../core/derive.mjs';
+import { renderJobPost } from '../core/render/job-post.mjs';
 import { baseFacts, baseResult, fact } from './fixtures.mjs';
+
+test('normalizeRole maps aliases to the canonical Korean labels', () => {
+  assert.equal(normalizeRole('assistant'), '보조강사');
+  assert.equal(normalizeRole('보조'), '보조강사');
+  assert.equal(normalizeRole('lead'), '주강사');
+  assert.equal(normalizeRole('메인'), '주강사');
+  assert.equal(normalizeRole('알수없음'), '알수없음');
+});
+
+test('normalizeDisclosure maps aliases to approved/hidden', () => {
+  assert.equal(normalizeDisclosure('public'), 'approved');
+  assert.equal(normalizeDisclosure('공개'), 'approved');
+  assert.equal(normalizeDisclosure('private'), 'hidden');
+  assert.equal(normalizeDisclosure('비공개'), 'hidden');
+});
 
 test('fills a fact the model left null from the operating conditions', () => {
   // 실제 사례: 커리큘럼에 시간표가 없어 dailySchedule이 비었고, 공고에 시간 줄이 사라졌다.
@@ -43,13 +58,12 @@ test('does not touch course content', () => {
   }
 });
 
-test('a filled condition survives verification', () => {
+test('a filled condition renders into the job post', () => {
   const result = baseResult();
   result.facts.dailySchedule = fact(null);
   const conditions = { customerDisclosure: 'hidden', dailySchedule: '10:00-17:00' };
   result.facts = applyConditions(result.facts, conditions).facts;
-  const { errors, slackJobPost } = verifyResult({ result, conditions });
-  assert.deepEqual(errors, []);
+  const slackJobPost = renderJobPost(result.facts);
   assert.match(slackJobPost, /• 시간 : 교육 10:00-17:00 \/ 근무 09:30-17:30/);
 });
 
@@ -75,15 +89,10 @@ test('the lead instructor has a different standard set', () => {
   assert.notDeepEqual(DEFAULT_RESPONSIBILITIES['주강사'], DEFAULT_RESPONSIBILITIES['보조강사']);
 });
 
-test('missing duties no longer block the posting, but the reviewer is told', () => {
+test('missing duties fill in with the standard set in the rendered post', () => {
   const result = baseResult();
   result.facts.responsibilities = fact([]);
-  const { errors, warnings, pendingMarkers, postable, slackJobPost } =
-    verifyResult({ result, conditions: { customerDisclosure: 'hidden' } });
-  assert.deepEqual(errors, []);
-  assert.ok(!pendingMarkers.includes('담당 업무'), '표준 세트로 채워져 막히지 않습니다');
-  assert.equal(postable, true);
-  assert.ok(warnings.some((w) => w.includes('표준 세트')));
+  const slackJobPost = renderJobPost(result.facts);
   assert.match(slackJobPost, /\*담당 업무\*\n• 실습 환경·계정 사전 점검/);
 });
 
