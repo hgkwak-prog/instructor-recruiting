@@ -7,7 +7,7 @@ import {
   parseOperationsModal,
   validateOperations
 } from '../adapters/slack/operations-modal.mjs';
-import { applyConditions } from '../core/conditions.mjs';
+import { applyConditions, CONDITION_TO_FACT } from '../core/conditions.mjs';
 
 const fact = (value, evidence = '커리큘럼') => ({ value, evidence });
 
@@ -20,6 +20,7 @@ function view(overrides = {}) {
     ops_working_hours: { value: { value: '09:30-17:30' } },
     ops_application: { value: { value: 'edu@example.com으로 회신' } },
     ops_deadline: { value: { selected_date: '2026-08-30' } },
+    ops_deadline_time: { value: { selected_time: '18:00' } },
     ops_travel: { value: { selected_options: [] } },
     ...overrides
   };
@@ -56,9 +57,33 @@ test('입력을 conditions 어휘로 바꾼다', () => {
     workingHours: '09:30-17:30',
     applicationMethod: 'edu@example.com으로 회신',
     deadline: '2026-08-30',
+    deadlineTime: '18:00',
     travelExpenseIncluded: false,
     customerDisclosure: 'hidden'
   });
+});
+
+test('모달이 운영 조건으로 넘길 수 있는 필드를 빠짐없이 받는다', () => {
+  // 모달이 못 받는 운영 조건은 채울 방법이 없는 항목이 된다. 그게 "검증이 빡세다"의
+  // 원인이었다. customerLabel만 예외다 -- 고객사 실명은 공고에 나가지 않는다.
+  const covered = new Set(Object.keys(parseOperationsModal(view())));
+  const missing = Object.keys(CONDITION_TO_FACT)
+    .filter((key) => key !== 'customerLabel' && !covered.has(key));
+  assert.deepEqual(missing, [], '모달이 못 받는 운영 조건이 있습니다');
+});
+
+test('마감 시각만 넣고 날짜를 비우면 막는다', () => {
+  const orphan = view({ ops_deadline: { value: { selected_date: null } } });
+  const result = validateOperations(parseOperationsModal(orphan));
+  assert.equal(result?.response_action, 'errors');
+  assert.match(JSON.stringify(result.errors), /마감일도 필요/);
+});
+
+test('마감 시각은 선택이다 — 비워도 통과한다', () => {
+  const noTime = view({ ops_deadline_time: { value: { selected_time: null } } });
+  const conditions = parseOperationsModal(noTime);
+  assert.equal(conditions.deadlineTime, null);
+  assert.equal(validateOperations(conditions), null);
 });
 
 test('고객사 비공개가 기본이다 — 모달에서 실수로 열 수 없다', () => {

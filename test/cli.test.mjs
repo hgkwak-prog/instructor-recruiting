@@ -113,12 +113,36 @@ test('run 디렉터리에 결과와 검증 로그를 남긴다', async () => {
   }
 });
 
-test('--source나 --conditions가 없으면 거부한다', async () => {
+test('--source가 없으면 거부한다', async () => {
+  const { db, context } = workspace();
+  await assert.rejects(generate(db, {}, context), /--source가 필요합니다/);
+});
+
+test('--conditions 없이도 돈다 — 추출만 보고 싶을 때가 있다', async () => {
+  // 흐름을 검수할 때는 오히려 이쪽이 낫다. 있지도 않은 운영값을 지어내 넣으면
+  // 관찰하려는 것을 오염시킨다.
   const { db, options, context } = workspace();
-  await assert.rejects(
-    generate(db, { source: options.source }, context),
-    /--source와 --conditions가 필요합니다/
+  const extractor = fakeExtractor(baseResult());
+
+  const outcome = await generate(db, { source: options.source }, { ...context, extractor });
+
+  assert.equal(extractor.calls.length, 1, '모델은 정상적으로 부릅니다');
+  assert.match(extractor.calls[0].prompt, /\[운영 조건\][\s\S]*\{\}/, '빈 조건이 프롬프트에 들어갑니다');
+  assert.ok(outcome.runId);
+});
+
+test('운영사항이 없으면 공고가 승인 가능해지지 않는다', async () => {
+  // 장소도 지원 방법도 모르는 공고를 내보낼 수는 없다.
+  const bare = baseResult();
+  for (const key of ['location', 'applicationMethod']) {
+    bare.facts[key] = { value: null, evidence: null };
+  }
+  const { db, options, context } = workspace();
+  const outcome = await generate(
+    db, { source: options.source }, { ...context, extractor: fakeExtractor(bare) }
   );
+  assert.equal(outcome.postable, false);
+  assert.ok(outcome.pending.length > 0, '[확인 필요]가 남아야 합니다');
 });
 
 test('모델에게 보낸 프롬프트와 스키마가 추출기에 그대로 전달된다', async () => {

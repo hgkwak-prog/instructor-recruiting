@@ -26,6 +26,7 @@ export const SCHEDULE_BLOCK = 'ops_daily_schedule';
 export const WORKING_HOURS_BLOCK = 'ops_working_hours';
 export const APPLICATION_BLOCK = 'ops_application';
 export const DEADLINE_BLOCK = 'ops_deadline';
+export const DEADLINE_TIME_BLOCK = 'ops_deadline_time';
 export const TRAVEL_BLOCK = 'ops_travel';
 
 const ROLES = ['보조강사', '주강사'];
@@ -108,6 +109,13 @@ export function buildOperationsModal({ fileName, defaults = {} } = {}) {
         action_id: 'value',
         ...(defaults.deadline ? { initial_date: defaults.deadline } : {})
       }, { optional: true }),
+      // 날짜만 나가면 지원자가 자정까지로 오해한다. 제안서에는 모집 마감이
+      // 적혀 있을 이유가 없으니, 시각을 넣을 자리는 여기밖에 없다.
+      input(DEADLINE_TIME_BLOCK, '마감 시각', {
+        type: 'timepicker',
+        action_id: 'value',
+        ...(defaults.deadlineTime ? { initial_time: defaults.deadlineTime } : {})
+      }, { optional: true, hint: '비우면 마감일만 공고에 나갑니다.' }),
       {
         type: 'input',
         block_id: TRAVEL_BLOCK,
@@ -148,6 +156,7 @@ export function parseOperationsModal(view) {
     workingHours: text(WORKING_HOURS_BLOCK),
     applicationMethod: text(APPLICATION_BLOCK),
     deadline: values[DEADLINE_BLOCK]?.value?.selected_date ?? null,
+    deadlineTime: values[DEADLINE_TIME_BLOCK]?.value?.selected_time ?? null,
     travelExpenseIncluded: (values[TRAVEL_BLOCK]?.value?.selected_options ?? []).length > 0,
     // 고객사 비공개가 기본이다. 공개는 계약상 예외라 모달에서 실수로 열 일이 아니다.
     customerDisclosure: 'hidden'
@@ -168,6 +177,9 @@ export function validateOperations(conditions) {
   }
   if (!conditions.applicationMethod) {
     errors[APPLICATION_BLOCK] = '지원 방법이 없으면 아무도 지원할 수 없습니다.';
+  }
+  if (conditions.deadlineTime && !conditions.deadline) {
+    errors[DEADLINE_BLOCK] = '마감 시각을 넣으려면 마감일도 필요합니다.';
   }
   return Object.keys(errors).length > 0 ? { response_action: 'errors', errors } : null;
 }

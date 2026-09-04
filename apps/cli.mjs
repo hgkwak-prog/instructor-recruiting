@@ -9,6 +9,7 @@
  * 같은 행의 상태를 두 곳에서 바꾸게 되고, 그 경합은 나중에 재현하기 어려운 버그가 된다.
  * 승인은 Slack 버튼 하나로 간다(설계서 §6.4).
  */
+import 'dotenv/config';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -57,12 +58,14 @@ function help() {
   console.log([
     '사용법:',
     '  recruit init',
-    '  recruit generate --source <파일> --conditions <json> [--dry-run] [--model <id>]',
+    '  recruit generate --source <파일> [--conditions <json>] [--dry-run] [--model <id>]',
     '  recruit list [--status review_pending]',
     '  recruit show --run-id <id>',
     '',
-    '  --dry-run 은 모델을 부르지 않고 실제로 보낼 프롬프트만 남깁니다.',
-    '  SKILL.md 규칙을 고친 뒤 무엇이 주입되는지 확인할 때 쓰세요.',
+    '  --dry-run     모델을 부르지 않고 실제로 보낼 프롬프트만 남깁니다.',
+    '                SKILL.md 규칙을 고친 뒤 무엇이 주입되는지 확인할 때.',
+    '  --conditions  생략하면 추출만 합니다. 커리큘럼만으로 모델이 무엇을 뽑는지',
+    '                볼 때 쓰세요. 공고에는 [확인 필요]가 남고 승인은 막힙니다.',
     '',
     '승인부터는 Slack에서 합니다 (P3에서 붙습니다).',
     '',
@@ -86,12 +89,19 @@ export async function generate(db, options, context = {}) {
     warn = console.error
   } = context;
 
-  if (!options.source || !options.conditions) {
-    throw new Error('--source와 --conditions가 필요합니다.');
-  }
+  if (!options.source) throw new Error('--source가 필요합니다.');
   const sourcePath = resolve(options.source);
   const curriculum = await readSourceAsync(sourcePath);
-  const conditions = await readJson(resolve(options.conditions));
+
+  // `--conditions`는 선택이다.
+  //
+  // 없으면 **순수 추출**이 된다 — 커리큘럼만으로 모델이 무엇을 뽑아내는지 그대로
+  // 보인다. 흐름을 검수할 때는 이쪽이 낫다. 있지도 않은 운영값을 지어내 넣으면
+  // 관찰하려는 것을 오염시키기 때문이다.
+  //
+  // 그 대신 공고에는 `[확인 필요]`가 남고 승인은 막힌다. 그게 맞다 —
+  // 장소도 지원 방법도 모르는 공고를 내보낼 수는 없다.
+  const conditions = options.conditions ? await readJson(resolve(options.conditions)) : {};
   const schema = JSON.parse(readFileSync(schemaFile, 'utf8'));
 
   const runId = randomUUID();
@@ -101,6 +111,8 @@ export async function generate(db, options, context = {}) {
 
   if (options['dry-run']) {
     // 모델을 부르지 않는다. 이 run은 DB에도 들어가지 않는다.
+    // 스키마도 남긴다 — 항목별 지시는 프롬프트가 아니라 스키마의 description에 있다.
+    writeRunArtifacts(runDirectory, { curriculum, conditions, schema });
     log(JSON.stringify({
       runId, dryRun: true, promptPath, promptBytes: Buffer.byteLength(prompt)
     }, null, 2));
@@ -114,6 +126,9 @@ export async function generate(db, options, context = {}) {
   });
   const extractor = injectedExtractor ?? await createExtractor({ queue: createSerialQueue() });
   warn(`모델 ${model} 호출 (인증: ${extractor.auth.credential}, 오늘 남은 호출 ${budget.remaining()}건)`);
+  if (!options.conditions) {
+    warn('운영사항 없이 추출만 합니다. 공고에는 [확인 필요]가 남고 승인은 막힙니다.');
+  }
 
   const { result, attempts, usages } = await extractor.extract({ prompt, schema, model, budget });
 
@@ -134,7 +149,7 @@ export async function generate(db, options, context = {}) {
   const generatedAt = new Date().toISOString();
   const reportPath = join(dataDir, 'reports', `${runId}.html`);
 
-  writeRunArtifacts(runDirectory, { curriculum, conditions, result, verification });
+  writeRunArtifacts(runDirectory, { curriculum, conditions, schema, result, verification });
   writeFileSync(reportPath, buildReport({ runId, result, verification, generatedAt, sourcePath }));
 
   if (verification.errors.length > 0) {

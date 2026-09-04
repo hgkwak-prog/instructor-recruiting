@@ -120,14 +120,21 @@ DM에 커리큘럼 파일 → [운영사항 입력] → 사실 추출 → 공고
 CLI에서 본 결과가 곧 봇 동작이다.
 
 ```bash
-# 1) 모델을 안 부르고 프롬프트만 본다 — SKILL.md 규칙이 어떻게 주입되는지
-npm run recruit -- generate --source ./커리큘럼.pdf \
-                            --conditions ./ops.json --dry-run
-cat data/runs/<run-id>/prompt.txt
+# 1) 모델을 안 부르고 지시만 본다
+npm run recruit -- generate --source ./커리큘럼.pdf --dry-run
+cat data/runs/<run-id>/prompt.txt    # 전역 규칙
+cat data/runs/<run-id>/schema.json   # 항목별 기준 (각 필드의 description)
 
 # 2) 진짜 돌린다
 npm run recruit -- generate --source ./커리큘럼.pdf --conditions ./ops.json
 ```
+
+`--conditions`는 선택이다. 생략하면 **추출만** 한다 — 커리큘럼만으로 모델이 무엇을 뽑는지
+그대로 보인다. 흐름을 검수할 때는 이쪽이 낫다. 있지도 않은 운영값을 지어내 넣으면
+관찰하려는 것을 오염시키기 때문이다. 그 대신 공고에는 `[확인 필요]`가 남고 승인은 막힌다.
+
+모델이 받는 지시는 **두 곳에서** 온다. `prompt.txt`만 보면 절반이다 — 항목별 기준은
+`outputFormat`으로 가는 스키마의 `description`에 있고, 그래서 `schema.json`도 함께 남긴다.
 
 `ops.json`은 봇 모달에 넣을 값과 같은 어휘다. 실제 운영값으로 채운다:
 
@@ -140,6 +147,7 @@ npm run recruit -- generate --source ./커리큘럼.pdf --conditions ./ops.json
   "workingHours": "09:30-17:30",
   "applicationMethod": "실제 지원 경로",
   "deadline": "2026-09-30",
+  "deadlineTime": "18:00",
   "travelExpenseIncluded": false,
   "customerDisclosure": "hidden"
 }
@@ -151,7 +159,8 @@ npm run recruit -- generate --source ./커리큘럼.pdf --conditions ./ops.json
 |---|---|
 | `curriculum.txt` | 파서가 뽑은 텍스트. PDF·HTML이 무엇으로 바뀌었는지 — 표가 뭉갰는지, 글을 놓쳤는지 |
 | `conditions.json` | 사람이 넣은 운영사항 |
-| `prompt.txt` | 모델에 보낸 글자 그대로 |
+| `prompt.txt` | 모델에 보낸 글자 그대로 (전역 규칙) |
+| `schema.json` | `outputFormat`으로 함께 보낸 스키마 — 항목별 지시는 여기 `description`에 있다 |
 | `result.json` | 모델이 돌려준 facts. `evidence`에 근거가 적혀 있다 |
 | `verification.json` | 검산 결과 — 오류·경고·조립된 공고·`postable` |
 
@@ -359,8 +368,9 @@ adapters/   외부 I/O. 여기만 의존성을 가진다
   sheets/       아직 아무도 부르지 않는다. P4에서 성과 기록용으로 붙인다
 
 apps/       bot.mjs (Slack 상주) · cli.mjs (운영자) · careerday-runner.mjs (호스트)
-skills/jd-writer/SKILL.md   `## Rules` 이하가 프롬프트에 주입되는 규칙 원본
-schemas/    scripts/gen-schema.mjs로 생성 — 손으로 고치지 않는다
+skills/jd-fact-extraction/SKILL.md   전역 규칙. `## Rules` 이하가 프롬프트에 주입된다
+schemas/    항목별 추출 기준(각 필드의 description)이 여기 있다.
+            scripts/gen-schema.mjs로 생성 — 손으로 고치지 않는다
 ```
 
 ### core의 의존성 0은 규칙이 아니라 검사다
@@ -388,8 +398,18 @@ Slack 클라이언트 하나를 core에 들이는 순간 테스트가 네트워�
 | 강사료 금액 | 원문 금액은 **고객사 예산**이다. 강사에게 제시할 금액과 다르다 |
 | 정확한 주소 | `서울 성동구 인근`이면 통근 판단에 충분하다 |
 
-**3. 규칙은 한 군데에만 있다.** `skills/jd-writer/SKILL.md`의 `## Rules` 이하가 그대로
-프롬프트에 주입된다. `## Rules` **아래**에 써야 주입된다 — 위에 쓰면 무시되고, 테스트가 잡는다.
+**3. 규칙은 그 규칙이 걸리는 자리에 있다.** 출처가 둘로 갈리되, 갈리는 기준이 명확하다.
+
+| 규칙 | 사는 곳 | 모델에게 가는 길 |
+|---|---|---|
+| 항목별 추출 기준 (24개) | 각 필드의 `description` | `outputFormat`의 스키마 |
+| 전역 규칙 (금액 금지·출력 규약) | `skills/jd-fact-extraction/SKILL.md` | 프롬프트 `[규칙]` 블록 |
+
+한 필드에 붙는 말을 딴 파일에 두면 코드가 바뀌어도 따라오지 않는다. 실제로 그렇게 해서
+없는 파일 경로를 가리키는 문장이 오래 남아 있었다. 그래서 테스트가 양방향으로 막는다 —
+설명 없는 필드가 있으면 실패하고, 필드별 문구가 SKILL.md에도 있으면 중복으로 실패한다.
+
+SKILL.md는 `## Rules` **아래**에 써야 주입된다. 위에 쓰면 무시되고, 테스트가 잡는다.
 
 **4. 승인 없이는 아무것도 나가지 않는다.** `검토대기 → 승인됨 → 게시완료`가 강제되고,
 초안에 `[확인 필요: …]`가 하나라도 남아 있으면 **승인 자체가 거부된다.**

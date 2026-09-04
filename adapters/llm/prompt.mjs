@@ -7,11 +7,19 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { factKeys } from '../../core/schema.mjs';
 
-const SKILL_PATH = ['skills', 'jd-writer', 'SKILL.md'];
+const SKILL_PATH = ['skills', 'jd-fact-extraction', 'SKILL.md'];
 
 /**
- * SKILL.md is the single source of recruitment rules. Everything from `## Rules`
- * onward is injected verbatim so the skill and the runtime can never drift apart.
+ * 규칙의 출처는 둘로 나뉜다.
+ *
+ *   항목별 기준  -> 스키마의 `description` (필드 바로 옆에 붙는다)
+ *   전역 규칙    -> 이 SKILL.md (한 필드에 붙일 수 없는 것만)
+ *
+ * 예전에는 24개 필드 설명이 스키마 밖 산문에 있었고, 그래서 코드가 바뀌어도
+ * 따라오지 않아 없는 파일 경로를 가리키는 문장 같은 게 남았다. 필드 설명은
+ * 필드와 같은 파일에 둔다.
+ *
+ * `## Rules` 이하는 글자 그대로 주입된다.
  */
 export function readSkillRules(projectRoot) {
   const raw = readFileSync(join(projectRoot, ...SKILL_PATH), 'utf8');

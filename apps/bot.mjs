@@ -326,7 +326,7 @@ async function main() {
       const conditions = operations;
       const prompt = buildPrompt({ projectRoot, curriculum, conditions, schema });
       writePromptFile({ prompt, runDirectory });
-      writeRunArtifacts(runDirectory, { curriculum, conditions });
+      writeRunArtifacts(runDirectory, { curriculum, conditions, schema });
 
       const { result } = await extractor.extract({ prompt, schema, model: DEFAULT_MODEL, budget });
 
