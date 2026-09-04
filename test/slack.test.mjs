@@ -66,7 +66,7 @@ test('파일이 여러 개면 받지 않고 되묻는다', () => {
 test('읽을 수 없는 형식은 이유를 알려준다', () => {
   const verdict = shouldIntake({ channel: 'D1', user: 'U1', files: [{ name: 'x.hwp' }] });
   assert.equal(verdict.reason, 'unsupported');
-  assert.match(rejectionMessage(verdict.reason), /PDF, TXT, MD/);
+  assert.match(rejectionMessage(verdict.reason), /PDF, HTML, MD, TXT/);
 });
 
 test('봇·자기 자신·채널 메시지에는 아무 말도 하지 않는다', () => {
