@@ -9,7 +9,10 @@
  * 지원자가 검산할 수 있어야 하고, 우리도 나중에 왜 이 금액인지 알 수 있어야 한다.
  */
 
-const FEE_LINE = /^강사료\(.*?\)\s*:.*$/m;
+// 공고 본문의 다른 모든 줄이 "• "로 시작하므로 강사료 줄도 맞춘다(2026-09).
+// 담당자가 편집 모달에서 다른 줄과 맞추려고 불릿을 앞에 붙이면 예전 정규식은
+// 줄 맨앞이 "강사료"가 아니라며 못 찾았다 — 실사용 중 재현된 문제.
+const FEE_LINE = /^•\s*강사료\(.*?\)\s*:.*$/m;
 
 export class CompensationError extends Error {
   constructor(message) {
@@ -93,10 +96,10 @@ export function buildCompensationLine({
 export function applyCompensationLine(post, line) {
   if (!FEE_LINE.test(post)) {
     throw new CompensationError(
-      '본문에서 강사료 줄을 찾지 못했습니다. `강사료(보조강사) : …` 형태의 줄이 있어야 합니다.'
+      '본문에서 강사료 줄을 찾지 못했습니다. `• 강사료(주강사 또는 보조강사) : …` 형태의 줄이 있어야 합니다.'
     );
   }
-  return post.replace(FEE_LINE, line);
+  return post.replace(FEE_LINE, `• ${line}`);
 }
 
 export function hasFeeLine(post) {

@@ -117,10 +117,13 @@ export function renderJobPost(facts) {
   // 3. 교육 목표 -- 일차별 설계(curriculumOutline)와 달리 이건 공개한다.
   //    "무엇을 갖추게 되는가"는 지원자가 자기 역량과 맞는지 판단하는 정보지,
   //    커리큘럼 설계 그 자체는 아니다.
+  // 목표·내용이 한두 개일 때는 join으로도 괜찮아 보였지만, 여러 개가 되는 순간
+  // 한 줄에 다 붙어 읽기 어려워진다(2026-09 실사용 재현) — 다른 섹션과 같은
+  // 불릿+줄바꿈으로 통일한다.
   const objectives = get('objectives') ?? [];
   if (objectives.length > 0) {
     lines.push('🎯 *교육 목표*');
-    lines.push(objectives.join(' '));
+    lines.push(...bullets(objectives));
     lines.push('');
   }
 
@@ -128,7 +131,7 @@ export function renderJobPost(facts) {
   //    공고는 공개 문서이고, 커리큘럼 설계는 우리가 파는 상품이다.
   const topics = get('topics') ?? [];
   lines.push('📖 *주요 내용*');
-  lines.push(topics.length > 0 ? topics.join(' · ') : NEEDS_INPUT('주요 내용'));
+  lines.push(...(topics.length > 0 ? bullets(topics) : [`• ${NEEDS_INPUT('주요 내용')}`]));
   lines.push('');
 
   // 스키마 description이 "최대 4개, 짧게"를 요구하지만 모델이 지키지 않을 수 있으니
@@ -166,7 +169,7 @@ export function renderJobPost(facts) {
     ? '(원천징수 후 지급, 출장비 포함)'
     : '(원천징수 후 지급)';
   lines.push('💰 *강사료*');
-  lines.push(`강사료(${roleLabel}) : 총 ______ 원 ${suffix}`);
+  lines.push(`• 강사료(${roleLabel}) : 총 ______ 원 ${suffix}`);
   lines.push('');
 
   // 8. 지원 안내

@@ -8,7 +8,7 @@ import {
   parseAmount
 } from '../core/compensation.mjs';
 
-const post = (fee = '강사료(보조강사) : 총 ______ 원 (원천징수 후 지급)') => [
+const post = (fee = '• 강사료(보조강사) : 총 ______ 원 (원천징수 후 지급)') => [
   '*AI 코딩 기초 교육 보조강사 모집*',
   '• 일정 : 2026년 9월 1일(화), 9월 8일(화), 9월 15일(화)',
   '',
@@ -86,4 +86,16 @@ test('빈칸 줄을 코드가 만든 줄로 갈아끼운다', () => {
 test('강사료 줄이 없으면 조용히 넘기지 않는다', () => {
   assert.ok(!hasFeeLine('*모집*\n내용만 있음'));
   assert.throws(() => applyCompensationLine('*모집*\n내용만 있음', 'x'), /강사료 줄을 찾지 못했/);
+});
+
+test('강사료 줄에도 다른 섹션과 같은 불릿이 붙어야 찾는다 (2026-09 실사용 재현)', () => {
+  // 공고의 다른 모든 줄은 "• "로 시작하는데 강사료 줄만 불릿이 없던 시절,
+  // 담당자가 편집 모달에서 시각적으로 맞추려고 앞에 "•"를 붙이면 옛 정규식은
+  // "줄 맨 앞이 강사료가 아니다"라며 못 찾아 에러를 던졌다. 역할(주강사/보조강사)과는 무관한 문제였다.
+  const bulletless = '*모집*\n강사료(주강사) : 총 ______ 원 (원천징수 후 지급)';
+  assert.ok(!hasFeeLine(bulletless), '불릿 없는 옛 형식은 더 이상 정상 형태가 아니다');
+
+  const { line } = buildCompensationLine({ mode: 'total', amount: 1_000_000, roleLabel: '주강사' });
+  const filled = applyCompensationLine(post('• 강사료(주강사) : 총 ______ 원 (원천징수 후 지급)'), line);
+  assert.match(filled, /^• 강사료\(주강사\) : 총 1,000,000원/m);
 });

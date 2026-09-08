@@ -56,7 +56,7 @@ test('the customer is never named, even when disclosure is approved', () => {
 
 test('the fee amount is never printed, even when the source states one', () => {
   const post = renderJobPost(baseFacts());
-  assert.match(post, /강사료\(보조강사\) : 총 ______ 원 \(원천징수 후 지급\)/);
+  assert.match(post, /• 강사료\(보조강사\) : 총 ______ 원 \(원천징수 후 지급\)/);
   assert.ok(!/\d{1,3}(,\d{3})+\s*원/.test(post), '공고에 금액이 찍히면 안 됩니다');
 });
 
@@ -132,7 +132,7 @@ test('the deadline keeps its time of day', () => {
 
 test('compensation amount is always left blank for the reviewer', () => {
   const post = renderJobPost(baseFacts());
-  assert.match(post, /강사료\(보조강사\) : 총 ______ 원 \(원천징수 후 지급\)/);
+  assert.match(post, /• 강사료\(보조강사\) : 총 ______ 원 \(원천징수 후 지급\)/);
 });
 
 test('travel expense note appears only when travel is confirmed', () => {
@@ -153,12 +153,12 @@ test('course objectives are published, but the day-by-day curriculum design is n
   // 목표 한 줄은 커리큘럼 설계가 아니라 "지원자가 뭘 갖추게 되는가"이므로 공개해도 된다.
   // 반면 일차별 설계(curriculumOutline)는 여전히 우리가 파는 상품이라 새면 안 된다.
   const post = renderJobPost(baseFacts());
-  assert.match(post, /🎯 \*교육 목표\*\nAI 코딩 도구로 실무 코드를 작성할 수 있다/);
+  assert.match(post, /🎯 \*교육 목표\*\n• AI 코딩 도구로 실무 코드를 작성할 수 있다/);
   assert.ok(!post.includes('*교육 내용*'));
   assert.ok(!post.includes('하네스 엔지니어링'), '일차별 내용이 새면 안 됩니다');
   assert.ok(!post.includes('1일차'));
-  // 지원자가 분야를 판단할 만큼은 나가야 한다
-  assert.match(post, /📖 \*주요 내용\*\nAI 코딩 기초 · Claude Code · MCP · Agentic Coding/);
+  // 지원자가 분야를 판단할 만큼은 나가야 한다 -- 여러 개일 때도 불릿으로 읽기 쉬워야 한다
+  assert.match(post, /📖 \*주요 내용\*\n• AI 코딩 기초\n• Claude Code\n• MCP\n• Agentic Coding/);
 });
 
 test('objectives section is omitted when there is nothing to say', () => {
