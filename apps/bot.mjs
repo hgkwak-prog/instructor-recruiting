@@ -60,6 +60,63 @@ function requireEnv() {
  * 테스트 워크스페이스와 실제 워크스페이스의 설정이 두 벌 존재하게 되므로,
  * 이 로그가 없으면 "테스트인 줄 알았는데 사내 채널에 나갔다"가 언젠가 일어난다.
  */
+/**
+ * 진행 상황을 한 메시지에 계속 갱신하는 헬퍼.
+ *
+ * 모델 호출은 "20초쯤"이라던 게 실사용에서 훨씬 오래 걸리는 경우가 있었고,
+ * 그동안 슬랙에는 아무 신호가 없어 사람이 멈춘 건지 도는 건지 알 수 없었다.
+ *
+ * 처음엔 15초마다 찍는 시계(하트비트)를 달았는데, 실제 단계 구분과 안 맞아서
+ * "그냥 시간만 세는 티커"로 보인다는 피드백을 받았다(2026-09-08). 그래서
+ * 시간 기반 타이머를 버리고, SDK가 실제로 스트리밍하는 메시지(system/assistant/
+ * result)와 코드의 실제 단계 전환(파일 읽기 → 프롬프트 조립 → 모델 호출 →
+ * 공고 조립)에 맞춰서만 갱신한다 -- "몇 초 지났다"가 아니라 "지금 뭘 하고
+ * 있다"를 보여준다. 다만 정말 아무 신호 없이 오래(30초) 조용하면 그건
+ * 이상 신호일 수 있으니 한 번은 알려준다(반복 티커가 아니라 워치독).
+ */
+function createProgressReporter(client, channel, logger) {
+  let ts = null;
+  let silenceTimer = null;
+  const silenceMs = 30000;
+
+  const armWatchdog = (lastText) => {
+    clearTimeout(silenceTimer);
+    if (!ts) return;
+    silenceTimer = setTimeout(() => {
+      client.chat.update({
+        channel,
+        ts,
+        text: `${lastText}\n(${silenceMs / 1000}초 넘게 새 신호가 없습니다 — 멈춘 건 아니고, 대형 문서는 원래 오래 걸립니다.)`
+      }).catch((error) => logger.error(error));
+    }, silenceMs);
+  };
+
+  return {
+    async start(text) {
+      const shown = `⏳ ${text}`;
+      const posted = await client.chat.postMessage({ channel, text: shown });
+      ts = posted.ts;
+      armWatchdog(shown);
+    },
+    async step(text) {
+      if (!ts) return;
+      const shown = `⏳ ${text}`;
+      await client.chat.update({ channel, ts, text: shown }).catch((error) => logger.error(error));
+      armWatchdog(shown);
+    },
+    async done(finalText) {
+      clearTimeout(silenceTimer);
+      if (!ts) return;
+      await client.chat.update({ channel, ts, text: finalText }).catch((error) => logger.error(error));
+    },
+    async fail(errorText) {
+      clearTimeout(silenceTimer);
+      if (!ts) return;
+      await client.chat.update({ channel, ts, text: errorText }).catch((error) => logger.error(error));
+    }
+  };
+}
+
 async function announceTarget(client, channelId, logger) {
   const auth = await client.auth.test();
   let channelLabel = channelId ?? '(미설정 — 승인 화면에서 매번 선택)';
@@ -272,10 +329,8 @@ async function main() {
     // 다음 건에서 같은 것을 또 치지 않도록 기억한다.
     lastOperations = operations;
 
-    await client.chat.postMessage({
-      channel,
-      text: `\`${pending.file.name}\` 읽는 중입니다. 사실 추출까지 20초쯤 걸립니다.`
-    });
+    const progress = createProgressReporter(client, channel, logger);
+    await progress.start(`\`${pending.file.name}\` 읽는 중`);
 
     const event = { channel, user: pending.user };
     try {
@@ -285,11 +340,35 @@ async function main() {
       const runDirectory = join(dataDirectory, 'runs', runId);
       // 방금 담당자가 넣은 값이 전부다. 섞어 넣을 기본값 같은 것은 없다.
       const conditions = operations;
+      await progress.step('프롬프트 조립 중');
       const prompt = buildPrompt({ projectRoot, curriculum, conditions, schema });
       writePromptFile({ prompt, runDirectory });
 
-      const { result } = await extractor.extract({ prompt, schema, model: DEFAULT_MODEL });
+      await progress.step('모델 호출 준비 중');
+      let assistantTurns = 0;
+      const { result } = await extractor.extract({
+        prompt,
+        schema,
+        model: DEFAULT_MODEL,
+        // 스키마 위반으로 재시도가 걸리면 그것도 보여준다 — 그냥 오래 걸리는 것과
+        // 재시도로 오래 걸리는 것은 사람이 봤을 때 다른 신호다.
+        onAttempt: ({ attempt }) => {
+          if (attempt > 1) progress.step(`모델 재시도 중 (${attempt}차 — 이전 응답이 스키마를 위반함)`);
+        },
+        // 시간 기반 티커 대신 SDK가 실제로 보내는 이벤트를 그대로 옮긴다.
+        onMessage: ({ attempt, message }) => {
+          if (message?.type === 'system' && message.subtype === 'init') {
+            progress.step(`모델 세션 시작 (${attempt}차 시도)`);
+          } else if (message?.type === 'assistant') {
+            assistantTurns += 1;
+            progress.step(`모델 응답 생성 중 (${attempt}차 시도, ${assistantTurns}번째 응답 조각)`);
+          } else if (message?.type === 'result') {
+            progress.step(`모델 응답 수신 완료 (${attempt}차 시도)`);
+          }
+        }
+      });
 
+      await progress.step('공고 조립 중');
       // override: 커리큘럼에 값이 있어도 담당자 입력이 이긴다.
       const applied = applyConditions(result.facts, conditions, { override: true });
       result.facts = applied.facts;
@@ -315,6 +394,7 @@ async function main() {
         ...(result.warnings ?? []),
         ...applied.overridden.map(({ key, from, to }) => `${key}: 원문 "${from}" → 입력 "${to}"`)
       ];
+      await progress.done(`✅ \`${pending.file.name}\` 처리 완료 — 아래에서 검토해 주세요.`);
       await client.chat.postMessage({
         channel: event.channel,
         ...buildPreviewMessage({
@@ -326,7 +406,7 @@ async function main() {
       });
     } catch (error) {
       logger.error(error);
-      await client.chat.postMessage({ channel: event.channel, text: `처리 중 실패했습니다: ${error.message}` });
+      await progress.fail(`❌ 처리 중 실패했습니다: ${error.message}`);
     }
   });
 

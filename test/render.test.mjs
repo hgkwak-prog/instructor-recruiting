@@ -166,6 +166,25 @@ test('objectives section is omitted when there is nothing to say', () => {
   assert.ok(!post.includes('*교육 목표*'));
 });
 
+// --- 고객사 명시 요구사항 (2026-09-08, 담당자가 운영조건 모달에서 직접 입력) ---
+
+test('operator-entered explicit requirements are appended to the qualifications section', () => {
+  const post = renderJobPost(baseFacts({
+    explicitRequirements: fact(['경력 5년 이상', 'AWS 실무 경력 필수'], '운영 조건')
+  }));
+  assert.match(
+    post,
+    /✅ \*강사 지원 자격\*\n[\s\S]*• Python·Node\.js 기초 이해\n• 경력 5년 이상\n• AWS 실무 경력 필수/
+  );
+});
+
+test('missing explicit requirements fact does not break rendering', () => {
+  // 모델 스키마에 없는 필드라 운영조건을 안 받은 오래된 run에는 아예 키가 없을 수 있다.
+  const facts = baseFacts();
+  delete facts.explicitRequirements;
+  assert.doesNotThrow(() => renderJobPost(facts));
+});
+
 test('the venue is generalised to city and district', () => {
   const post = renderJobPost(baseFacts({
     location: fact('서울 성동구 성수이로 00, 가상캠퍼스 4층')

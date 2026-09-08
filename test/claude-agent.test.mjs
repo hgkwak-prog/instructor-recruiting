@@ -192,3 +192,23 @@ test('사용량을 돌려준다 — 토큰 소비량을 견주려면 필요하�
   assert.equal(usages[0].turns, 1);
 });
 
+// --- 진행 상황 스트리밍 (2026-09-08, 시간 기반 하트비트 대신 실제 SDK 이벤트) ---
+
+test('invokeOnce는 result뿐 아니라 모든 스트리밍 메시지를 onMessage로 넘긴다', async () => {
+  const query = fakeQuery([baseResult()]);
+  const seen = [];
+  await invokeOnce({ prompt: 'p', schema, query, onMessage: (message) => seen.push(message.type) });
+  assert.deepEqual(seen, ['assistant', 'result']);
+});
+
+test('extractFacts는 onMessage에 어느 시도(attempt) 중인지 같이 넘긴다', async () => {
+  const broken = baseResult();
+  delete broken.facts.objectives;
+  const query = fakeQuery([broken, baseResult()]);
+  const seen = [];
+  await extractFacts({ prompt: 'p', schema, query, onMessage: (event) => seen.push(event) });
+
+  assert.deepEqual(seen.map((e) => e.attempt), [1, 1, 2, 2]);
+  assert.deepEqual(seen.map((e) => e.message.type), ['assistant', 'result', 'assistant', 'result']);
+});
+

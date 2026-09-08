@@ -59,8 +59,24 @@ test('입력을 conditions 어휘로 바꾼다', () => {
     deadline: '2026-08-30',
     deadlineTime: '18:00',
     travelExpenseIncluded: false,
+    explicitRequirements: null,
     customerDisclosure: 'hidden'
   });
+});
+
+test('고객사 명시 요구사항을 줄 단위로 쪼갠다', () => {
+  const withRequirements = view({
+    ops_explicit_requirements: { value: { value: '경력 5년 이상\n\nAWS 실무 경력 필수' } }
+  });
+  assert.deepEqual(
+    parseOperationsModal(withRequirements).explicitRequirements,
+    ['경력 5년 이상', 'AWS 실무 경력 필수']
+  );
+});
+
+test('고객사 명시 요구사항이 없으면 빈 배열이 아니라 null이다', () => {
+  // 빈 배열이면 applyConditions가 "확인했는데 없더라"로 오해할 수 있다 (''/null만 건너뛴다).
+  assert.equal(parseOperationsModal(view()).explicitRequirements, null);
 });
 
 test('모달이 운영 조건으로 넘길 수 있는 필드를 빠짐없이 받는다', () => {

@@ -36,7 +36,11 @@ export const CONDITION_TO_FACT = {
   travelExpenseIncluded: 'travelExpenseIncluded',
   applicationMethod: 'applicationMethod',
   deadline: 'deadline',
-  deadlineTime: 'deadlineTime'
+  deadlineTime: 'deadlineTime',
+  // 고객사가 명시적으로 요구한 조건(경력 연차, 도메인 경력 등)은 모델이 지어내면
+  // 안 되는 종류라(requiredQualifications 설명 참고) 담당자가 직접 적는다.
+  // 모델 스키마(core/schema.mjs)에는 없는, 운영 조건 전용 사실이다.
+  explicitRequirements: 'explicitRequirements'
 };
 
 const NORMALIZERS = {

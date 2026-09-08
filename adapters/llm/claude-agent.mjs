@@ -92,7 +92,8 @@ export async function invokeOnce({
   model = DEFAULT_MODEL,
   maxBudgetUsd,
   abortController,
-  query
+  query,
+  onMessage
 }) {
   if (typeof query !== 'function') {
     throw new TypeError('query 구현이 필요합니다 (기본값은 createExtractor가 주입합니다).');
@@ -109,7 +110,12 @@ export async function invokeOnce({
 
   let result;
   try {
+    // SDK가 스트리밍으로 내는 메시지(system/assistant/result 등)를 그대로
+    // 호출자에게 넘긴다 — 시간 기반 하트비트 대신 실제로 무슨 일이 일어나고
+    // 있는지(모델이 응답을 만드는 중인지, 재시도가 도는 중인지)를 슬랙에
+    // 보여주기 위함이다(2026-09-08, 사용자 요청).
     for await (const message of query({ prompt, options })) {
+      onMessage?.(message);
       if (message?.type === 'result') result = message;
     }
   } catch (error) {
@@ -158,7 +164,8 @@ export async function extractFacts({
   abortController,
   query,
   budget,
-  onAttempt
+  onAttempt,
+  onMessage
 }) {
   let lastErrors = [];
   const usages = [];
@@ -177,7 +184,8 @@ export async function extractFacts({
       model,
       maxBudgetUsd,
       abortController,
-      query
+      query,
+      onMessage: onMessage ? (message) => onMessage({ attempt, message }) : undefined
     });
     usages.push(usage);
     onAttempt?.({ attempt, usage });

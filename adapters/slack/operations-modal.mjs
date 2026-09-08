@@ -28,6 +28,7 @@ export const APPLICATION_BLOCK = 'ops_application';
 export const DEADLINE_BLOCK = 'ops_deadline';
 export const DEADLINE_TIME_BLOCK = 'ops_deadline_time';
 export const TRAVEL_BLOCK = 'ops_travel';
+export const EXPLICIT_REQUIREMENTS_BLOCK = 'ops_explicit_requirements';
 
 const ROLES = ['보조강사', '주강사'];
 const TIME_RANGE = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
@@ -137,7 +138,24 @@ export function buildOperationsModal({ fileName, defaults = {} } = {}) {
             }
             : {})
         }
-      }
+      },
+      // 커리큘럼은 제안서 단계 참고자료라 "경력 5년 이상", "○○ 도메인 경력 필수"
+      // 같은 확실한 요구사항은 원문에서 나올 수도, 안 나올 수도 있다.
+      // 모델에게 이런 조건을 지어내게 두지 않는다(requiredQualifications 설명
+      // 참고) -- 고객사가 실제로 요구한 게 맞는지는 담당자만 안다. 그래서
+      // 여기서 사람이 직접, 있는 만큼만 적는다. 없으면 그냥 비워 둔다.
+      input(EXPLICIT_REQUIREMENTS_BLOCK, '고객사 명시 요구사항', {
+        type: 'plain_text_input',
+        action_id: 'value',
+        multiline: true,
+        placeholder: { type: 'plain_text', text: '경력 5년 이상\nAWS 실무 경력 필수' },
+        ...(defaults.explicitRequirements
+          ? { initial_value: defaults.explicitRequirements.join('\n') }
+          : {})
+      }, {
+        optional: true,
+        hint: '고객사가 확실히 요구한 것만 한 줄에 하나씩. 커리큘럼에 없어도 실제로 들은 게 있으면 적으세요. 없으면 비워 두세요.'
+      })
     ]
   };
 }
@@ -147,6 +165,13 @@ export function parseOperationsModal(view) {
   const values = view?.state?.values ?? {};
   const text = (block) => values[block]?.value?.value?.trim() || null;
   const headcount = values[HEADCOUNT_BLOCK]?.value?.value;
+  // 자유 텍스트를 줄 단위로 쪼갠다. 빈 줄은 버리고, 아무것도 안 남으면 null —
+  // 빈 배열을 그대로 두면 조건으로 인식돼(applyConditions는 ''/null/undefined만
+  // 건너뛴다) "요구사항을 확인했는데 없더라"는 사실과 "안 물어봤다"가 구분이 안 된다.
+  const multiline = (block) => {
+    const lines = (values[block]?.value?.value ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+    return lines.length > 0 ? lines : null;
+  };
 
   return {
     instructorRole: values[ROLE_BLOCK]?.value?.selected_option?.value ?? '보조강사',
@@ -158,6 +183,7 @@ export function parseOperationsModal(view) {
     deadline: values[DEADLINE_BLOCK]?.value?.selected_date ?? null,
     deadlineTime: values[DEADLINE_TIME_BLOCK]?.value?.selected_time ?? null,
     travelExpenseIncluded: (values[TRAVEL_BLOCK]?.value?.selected_options ?? []).length > 0,
+    explicitRequirements: multiline(EXPLICIT_REQUIREMENTS_BLOCK),
     // 고객사 비공개가 기본이다. 공개는 계약상 예외라 모달에서 실수로 열 일이 아니다.
     customerDisclosure: 'hidden'
   };

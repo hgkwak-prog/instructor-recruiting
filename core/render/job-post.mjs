@@ -156,6 +156,12 @@ export function renderJobPost(facts) {
   lines.push(...bullets(derived));
   lines.push(...(stated.length > 0 ? bullets(stated) : [`• ${NEEDS_INPUT('역량 조건')}`]));
 
+  // 고객사가 명시적으로 요구한 조건(경력 연차, 도메인 경력 등) -- 모델이 지어낼
+  // 수 없는 종류라 담당자가 운영사항 모달에서 직접 적는다(core/conditions.mjs).
+  // 모델 스키마에 없는 값이라 get()이 아니라 이 필드 자체가 아예 없을 수 있다.
+  const explicitRequirements = get('explicitRequirements') ?? [];
+  lines.push(...bullets(explicitRequirements));
+
   const preferred = (get('preferredQualifications') ?? []).map((item) => item.text);
   if (preferred.length > 0) {
     lines.push('');
