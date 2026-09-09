@@ -1,6 +1,6 @@
 {
   "name": "instructor-recruiting",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "강사 구인 자동화 — 커리큘럼에서 사실을 추출하고, 코드가 공고를 조립하고, 사람이 승인해 게시한다",
   "type": "module",
