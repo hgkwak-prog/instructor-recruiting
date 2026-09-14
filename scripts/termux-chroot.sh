@@ -15,9 +15,13 @@ set -e
 
 ROOTFS="${TERMUX_CHROOT_ROOTFS:-/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs}"
 
+# `su`가 띄우는 쉘은 안드로이드 기본 쉘(/system/bin/sh)이라 Termux의 PATH를
+# 안 물려받는다 — "bash"라고만 부르면 못 찾는다. 절대경로를 미리 잡아 둔다.
+BASH_BIN="${BASH_BIN:-/data/data/com.termux/files/usr/bin/bash}"
+
 if [ "$(id -u)" -ne 0 ]; then
   echo "root 권한이 필요합니다 — su로 재실행합니다."
-  exec su -c "TERMUX_CHROOT_ROOTFS='$ROOTFS' bash '$0'"
+  exec su -c "TERMUX_CHROOT_ROOTFS='$ROOTFS' '$BASH_BIN' '$0'"
 fi
 
 if [ ! -d "$ROOTFS" ]; then
@@ -32,7 +36,9 @@ bind_into_rootfs() {
   local path="$1"
   local target="$ROOTFS$path"
   mkdir -p "$target"
-  if mountpoint -q "$target"; then
+  # `mountpoint` 명령이 Termux 기본 설치엔 없을 수 있어 /proc/self/mounts를
+  # 직접 본다 — 이미 마운트돼 있으면 다시 mount하지 않는다(중복 마운트 방지).
+  if grep -qs " $(printf '%s' "$target" | sed 's/ /\\040/g') " /proc/self/mounts; then
     return 0
   fi
   if [ ! -e "$path" ]; then
