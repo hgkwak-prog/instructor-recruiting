@@ -13,6 +13,26 @@
 깨질 수 있다 — 이 프로젝트가 이미 한 번 겪은 "샌드박스 아키텍처 불일치"
 (`CLAUDE.md` 참고)와 같은 종류 문제다.
 
+## 결론 (2026-09-14) — 진짜 chroot, 단 래퍼 스크립트로
+
+- Termux 기본 유저랜드의 Node는 `process.platform`을 `linux`가 아니라
+  **`android`로 보고한다.** SDK의 `optionalDependencies`에는 애초에 android
+  빌드가 없으므로("Native CLI binary for android-arm64 not found"), libc
+  문제 이전에 그런 패키지 자체가 존재하지 않는다. Termux 유저랜드 그대로는
+  절대 해결 안 된다.
+- `proot-distro install ubuntu` → 그 안에서 `npm run termux:smoke`, `npm test`
+  **통과 확인함(2026-09-14).** 다만 proot는 매 시스템콜을 ptrace로 가로채는
+  방식이라 오버헤드가 있다.
+- 루팅을 활용하면 **같은 rootfs로 진짜 `chroot`도 된다** — ptrace 오버헤드가
+  없다. 문제는 그 자체가 아니라 손으로 할 때의 번거로움이었다: `su`로 들어갈
+  때마다 `/dev`·`/proc`·`/sys`·`/sdcard`를 순서대로 bind mount해야 하고,
+  PATH·HOME이 안 잡혀서 `ls: command not found`가 나고, 나갈 때 언마운트를
+  잊기 쉬웠다.
+- 그래서 이 과정을 `scripts/termux-chroot.sh`로 스크립트화했다 — 마운트
+  (이미 됐으면 건너뜀) → `env -i`로 깨끗한 PATH/HOME 설정 → `chroot` 진입,
+  안에서 `exit`하면 `trap`으로 자동 언마운트까지 한 번에 한다. **이제부터는
+  이 스크립트로만 chroot에 들어간다** — 손으로 mount/chroot 치지 않는다.
+
 ## 0단계 — 지금 유저랜드에서 바로 확인
 
 ```bash
@@ -37,6 +57,27 @@ curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
 apt install -y nodejs
 node --version   # v24.x 인지 확인 (package.json engines 요구사항)
 ```
+
+### 1-b단계 — proot 대신 진짜 chroot로 (권장, 루팅 기기)
+
+`proot-distro install ubuntu`로 받아둔 rootfs를 그대로 재사용한다 — 다시
+받을 필요 없다.
+
+```bash
+bash scripts/termux-chroot.sh
+```
+
+- root가 아니면 스크립트가 알아서 `su`로 재실행한다(비밀번호/권한 팝업이 뜨면 허용).
+- `/dev`·`/proc`·`/sys`·`/sdcard`를 자동으로 bind mount한다(이미 마운트돼
+  있으면 건너뛴다 — 여러 번 실행해도 안전).
+- PATH·HOME을 깨끗하게 다시 설정하므로 `ls: command not found` 같은 문제가
+  없다.
+- 안에서 `exit`(또는 Ctrl+D)하면 **자동으로 언마운트까지** 끝낸다.
+- rootfs 경로가 바뀌었다면 `TERMUX_CHROOT_ROOTFS=/다른/경로 bash scripts/termux-chroot.sh`로
+  덮어쓸 수 있다.
+
+이후 안에서는 그냥 `cd /root/instructor-recruiting`처럼 **절대경로**로 이동한다.
+`/sdcard/파일.pdf`도 그대로 접근된다(위에서 bind mount했으므로).
 
 ## 2단계 — 레포를 다시 클론하고 스모크 테스트
 
