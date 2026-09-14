@@ -1,7 +1,8 @@
-# 인수인계 — 2026-09-08 기준
+# 인수인계 — 2026-09-14 기준
 
-다른 계정(조직만 다름, 안 쓰던 팀 계정)으로 세션을 옮기기 위해 갱신. 새 세션에서 이
-파일을 읽으면 지금까지의 결정과 상태를 대부분 이어받을 수 있다.
+다른 계정(조직만 다름, 안 쓰던 팀 계정)으로 세션을 옮기기 위해 갱신했던 문서.
+2026-09-14에 한 세션 안에서 많이 바뀌어서 다시 갱신한다. 새 세션에서 이 파일을
+읽으면 지금까지의 결정과 상태를 대부분 이어받을 수 있다.
 
 ## 하는 일
 
@@ -11,9 +12,17 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
 핵심 원칙: **모델은 사실만 추출하고, 공고 본문은 코드가 조립한다.** 이게 이 코드베이스
 전체에서 제일 중요한 불변식이다.
 
-## 지금 상태 (v1, 실사용 검증 완료)
+## 지금 상태 (v1.0.0, 실사용 검증 완료 + GitHub 이관)
 
-- `npm test` 236개 전부 통과, `npm run check` 통과.
+- `npm test` 236개 전부 통과, `npm run check` 통과, `npm audit` 0건
+  (2026-09-14: `qs`/`hono` moderate 취약점 2건 패치 버전으로 해소).
+- 버전 `1.0.0`으로 태깅. GitHub `hgkwak-prog/instructor-recruiting`에 이관
+  완료(`master` 푸시됨). **문서(`README.md`/`INTEGRATION-DESIGN.md`)도
+  2026-09-14에 v1 실제 상태 기준으로 다시 정리했다** — 그 전까지는 재기획
+  이전(P0~P5 로드맵, 검산기, HTML 리포트, 리마인더 등 실제로 없는 것들)을
+  그대로 담고 있어서 신뢰할 수 없었다. `INTEGRATION-DESIGN.md`는 전면
+  재작성 대신 맨 위에 "이후 뒤집힌 결정" 표를 달아 역사적 기록으로만
+  남겼다.
 - 실제 제안서 PDF 2건(이지스엔터프라이즈, 비개발자 맞춤형 하네스 엔지니어링)으로
   `node apps/cli.mjs generate --source <pdf>` → `show --run-id <id>` 흐름 검증 완료.
 - JD 본문 포맷을 2026-09 실제 슬랙 게시글 5건 기준으로 다시 맞췄다
@@ -23,6 +32,11 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
 - 슬랙 봇(`apps/bot.mjs`)에 운영사항 입력 모달(`OPERATIONS_MODAL`)과 공고 편집
   모달(`EDIT_MODAL`)이 이미 구현되어 있다. CLI(`generate`)는 추출 검증용이고,
   실제 게재 흐름은 봇을 통해서만 나간다(설계서 §6.4 — 승인 지점은 슬랙 버튼 하나뿐).
+- 비개발자용 사용법 매뉴얼 `USAGE.md` 추가 (2026-09-08). 피드백은 비즈팀
+  곽형곤에게 DM으로 받기로 함.
+- **봇을 실제로 처음 실행까지는 해봤다**(2026-09-14, 안드로이드에서 —
+  아래 "Termux/안드로이드 배포" 참고). `SLACK_BOT_TOKEN`이 `invalid_auth`로
+  막혀서 end-to-end는 아직 미완 — 내일 토큰 재발급 예정.
 
 ## v1 범위 결정 (재기획 때 정한 것, 뒤집지 않을 것)
 
@@ -41,7 +55,10 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
    돌리면 된다 — 워크스페이스는 `.env`의 `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN`
    교체만으로 바뀌므로 나중에 실제 워크스페이스로 옮기는 건 토큰만 바꾸면 된다.
 2. 슬랙 봇을 실제로 돌려서 운영사항 모달 → 편집 모달 → 승인 → 게시까지
-   end-to-end 검증한 적은 아직 없다 (CLI 경로만 검증됨).
+   end-to-end 검증한 적은 아직 없다 (CLI 경로만 검증됨). **2026-09-14: 안드로이드에서
+   `npm run bot`을 처음 실행은 해봤으나 `SLACK_BOT_TOKEN`이 `invalid_auth`로
+   막혀 auth.test조차 못 넘겼다** — 아래 "Termux/안드로이드 배포" 참고.
+   내일 토큰 재발급 후 이어서 검증.
 3. **[완료, 미검증] "고객사 명시 요구사항" 필드 (2026-09-08).** 경력 연차·도메인
    경력처럼 requiredQualifications가 일부러 못 쓰게 막아둔 종류(문서에서 나올 수
    없는 기준을 모델이 지어내지 못하게)라, 원문에 실제로 있어도 담을 곳이 없었다.
@@ -72,6 +89,12 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
    빠지지 않았는지"만 확인 후 승인. 지금 구조(모달에서 정형 입력 → 코드가 조립)
    와 정면으로 다른 방향이라 재설계 필요 — v1 범위 결정을 뒤집는 수준이므로
    다음 세션에서 먼저 이 문서 §v1 범위 결정 섹션과 맞대어 논의할 것.
+   **2026-09-14 추가 생각(아직 결론 아님):** 지금은 제안서 커리큘럼 기반이지만,
+   나중에 운영사항이 더 많이 반영되는 쪽으로 가면 지금의 "필드 하나하나
+   스키마로 못박기" 방식보다 **구조화 아웃풋(structured output) 자체를
+   다른 형태로 다시 설계해야 할 수도 있다**는 문제의식. 아직 선임(선임님)과
+   방향을 더 논의해야 하는 단계라 — 다음 세션에서 코드로 바로 들어가지 말고
+   이 논의부터 다시 확인할 것.
 6. **[완료, 미검증] 슬랙 진행상황 로그 (2026-09-08 추가, 같은 날 시간 티커 →
    이벤트 기반으로 교체).** 운영사항 모달 제출 후 "20초쯤 걸립니다"라고만
    찍고 끝까지 무응답이던 문제 — 실사용에서 대형 문서는 그보다 훨씬 오래
@@ -91,6 +114,39 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
      `npm test` 232개 전부 통과. `apps/bot.mjs` 자체는 여전히 테스트 대상
      밖(실제 슬랙+SDK 필요)이라 **실사용 검증 전**이다. 다음에 봇 돌릴 때
      이 로그가 실제로 단계를 잘 짚는지 확인할 것.
+7. **[진행 중] Termux/안드로이드 배포 (`termux-android` 브랜치, 2026-09-14
+   착수).** 회사 안 쓰는 루팅 안드로이드 폰(갤럭시 A23)에 봇을 상주시켜볼
+   수 있는지 검증 중. 자세한 절차는 `docs/termux-setup.md` 참고, 핵심만
+   요약:
+   - Termux 기본 유저랜드의 Node는 `process.platform`을 `linux`가 아니라
+     **`android`로 보고한다.** `@anthropic-ai/claude-agent-sdk`의
+     `optionalDependencies`엔 android 빌드가 아예 없어서
+     ("Native CLI binary for android-arm64 not found") Termux 유저랜드
+     그대로는 절대 해결 안 된다.
+   - `proot-distro install ubuntu`로 진짜 Linux(glibc) 유저랜드를 깔면
+     해결된다 — `npm run termux:smoke`, `npm test` 통과 확인함.
+   - 루팅을 살려서 **진짜 `chroot`**(proot의 ptrace 오버헤드 없이)도 되는
+     걸 확인했지만, 손으로 하면 마운트 순서·PATH/HOME·언마운트 챙기는 게
+     너무 번거로워서 `scripts/termux-chroot.sh`로 스크립트화했다. 대화형
+     모드와, 상주 실행용 "명령을 인자로 받아 그걸 메인 프로세스로 붙잡는"
+     모드 둘 다 지원한다 — **상주시킬 땐 반드시 후자를 쓸 것**(대화형
+     셸에서 `&`로 백그라운드 던지고 exit하면 그 순간 `/dev`·`/proc`·`/sys`
+     언마운트돼서 봇이 나중에 깨질 수 있다).
+   - `/sdcard`는 스크립트에서 자동 마운트 안 함 — 최신 안드로이드에서 FUSE
+     기반이라 root라도 SELinux가 bind mount를 막는 경우가 흔했고, 실제
+     봇은 커리큘럼을 슬랙 API로 받지 로컬 저장소를 안 봐서 애초에 필요
+     없다.
+   - `nohup bash scripts/termux-chroot.sh 'cd /root/instructor-recruiting && exec npm run bot' > ~/bot.log 2>&1 & disown`
+     로 상주 실행. Termux:Boot 스크립트에 같은 줄 넣으면 재부팅 시 자동
+     기동.
+   - **막힌 지점**: `SLACK_BOT_TOKEN`이 `invalid_auth`로 거부됨. 코드/플랫폼
+     문제 아니고 토큰 자체 문제로 보임(만료·재설치로 무효화·복붙 오류 등) —
+     내일 Slack API 대시보드에서 Bot Token 재발급해서 이어서 검증.
+   - 회사 정책/유지보수 관점에서 "굳이 법인폰을 루팅해야 하나, 차라리 팀
+     공용 윈도우 노트북에 붙이는 게 낫지 않나"는 논의가 나옴 — 결론 안
+     남. proot-distro만 쓰면 루팅 자체가 필요 없다는 점, 삼성 기기는
+     일반 배터리 최적화 제외만으로 안 되고 "절전 앱"/"深 절전 앱" 리스트도
+     따로 빼야 한다는 점도 참고.
 
 ## 알아둘 것 (다시 겪지 않기 위해)
 
@@ -102,11 +158,26 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
   .git/HEAD.lock` 해줘야 풀린다.** 파일을 진짜로 지워야 할 때도 마찬가지로
   사용자가 직접 `rm`/`git rm`을 실행해야 한다 — Claude 쪽 도구로는 못 지운다.
   (합의된 방식: Claude가 락 삭제 명령 + 커밋 명령을 한 번에 같이 준다.)
-- **샌드박스 아키텍처 불일치**: bash 도구의 리눅스 샌드박스(`linux-arm64`)에는
-  `@anthropic-ai/claude-agent-sdk`의 네이티브 바이너리가 없다 (사용자 맥에
-  설치된 건 `darwin-arm64`). 그래서 실제 모델 호출은 Claude의 bash로는 안 되고
-  **사용자가 자기 맥 터미널에서 직접 실행**해서 결과를 붙여넣어야 한다.
-  `--dry-run`으로 프롬프트 조립만 Claude 쪽에서 확인 가능.
+  **오해하지 말 것**: 이 lock은 "진짜 동시에 뭔가 돌고 있다"는 신호가
+  아니다 — 커밋 자체는 이미 끝났고, git이 뒷정리(lock 파일 삭제)만 못 한
+  찌꺼기다. 안전하게 지워도 된다.
+- **샌드박스 아키텍처 불일치**: bash 도구의 리눅스 샌드박스(`linux-arm64`)에
+  `@anthropic-ai/claude-agent-sdk`의 네이티브 바이너리가 없다고 오래 알고
+  있었는데, **2026-09-14에 다시 확인해보니 이 샌드박스에서 SDK import는
+  성공한다**(`scripts/termux-smoke-test.mjs`로 직접 확인함 — SDK 버전이
+  올라가며 linux-arm64 빌드가 추가됐을 가능성). 다만 이건 **import만
+  확인한 것**이고 실제 모델 호출(`invokeOnce`)까지 되는지는 별개 문제라
+  과신하지 말 것 — 실제 모델 호출은 여전히 **사용자가 자기 맥 터미널에서
+  직접 실행**해서 결과를 붙여넣는 방식을 기본으로 한다. `--dry-run`으로
+  프롬프트 조립만 Claude 쪽에서 확인 가능.
+- **플랫폼 이름 자체가 다를 수 있다**: 안드로이드(Termux)에서는 Node가
+  `process.platform`을 `linux`가 아니라 `android`로 보고해서, SDK가
+  `optionalDependencies`에 없는 플랫폼이라 아예 못 찾는 사고가 났다
+  ("Native CLI binary for android-arm64 not found", 2026-09-14). libc
+  문제(`musl`/`glibc`)보다 먼저 **플랫폼 이름 자체가 지원 목록에 있는지**를
+  확인할 것. 새 실행 환경을 만날 때마다
+  `node -e "console.log(process.platform, process.arch)"`로 먼저 확인하고
+  SDK의 `optionalDependencies` 목록과 대조하는 습관을 들일 것.
 - **작은 예시로 결론 내리지 말 것**: `maxTurns: 1` 버그를 작은 428바이트 예시
   커리큘럼으로 재현 안 된다고 "문제없음"으로 결론지었다가, 실제 크기의 PDF로는
   똑같이 실패해서 뒤집은 적이 있다. 실사용 규모로 재현해야 확정할 수 있다.
@@ -123,3 +194,9 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
 - 실제 게재 흐름 돌리려면 `.env`에 `SLACK_BOT_TOKEN`(xoxb-), `SLACK_APP_TOKEN`
   (xapp-) 설정 후 `npm run bot`. `SLACK_CHANNEL_ID`는 선택(안 정하면 승인 화면
   에서 매번 채널 선택). `PUBLISH_MODE=clipboard`로 실제 게시 없이 테스트 가능.
+- 토큰이 `xoxb-`/`xapp-` 형식은 맞는데 `invalid_auth`가 뜨면, 형식 체크
+  (`requireEnv`)는 통과했지만 값 자체가 무효라는 뜻 — 아래로 직접 찔러서
+  확인:
+  `curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" https://slack.com/api/auth.test`
+- 안드로이드/Termux 배포는 `docs/termux-setup.md` + `scripts/termux-chroot.sh` +
+  `scripts/termux-smoke-test.mjs` 참고 (`termux-android` 브랜치).
