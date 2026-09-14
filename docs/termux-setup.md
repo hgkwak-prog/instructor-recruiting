@@ -68,8 +68,17 @@ bash scripts/termux-chroot.sh
 ```
 
 - root가 아니면 스크립트가 알아서 `su`로 재실행한다(비밀번호/권한 팝업이 뜨면 허용).
-- `/dev`·`/proc`·`/sys`·`/sdcard`를 자동으로 bind mount한다(이미 마운트돼
-  있으면 건너뛴다 — 여러 번 실행해도 안전).
+- `/dev`·`/proc`·`/sys`를 자동으로 bind mount한다(이미 마운트돼 있으면
+  건너뛴다 — 여러 번 실행해도 안전).
+- `/sdcard`는 **일부러 자동으로 안 건다.** 최신 안드로이드에서 `/sdcard`는
+  FUSE 기반이라 SELinux가 `mount --bind` 자체를 막는 경우가 흔했다
+  (2026-09-14 실사용에서 확인). 실제 봇은 커리큘럼 파일을 로컬 저장소가
+  아니라 슬랙 API로 받으므로 애초에 `/sdcard` 접근이 필요 없다. CLI로 손수
+  테스트할 파일이 있으면 마운트 대신 그냥 복사해 넣는다:
+  ```bash
+  ROOTFS=/data/data/com.termux/files/usr/var/lib/proot-distro/containers/ubuntu/rootfs
+  cp /sdcard/커리큘럼.pdf $ROOTFS/root/instructor-recruiting/
+  ```
 - PATH·HOME을 깨끗하게 다시 설정하므로 `ls: command not found` 같은 문제가
   없다.
 - 안에서 `exit`(또는 Ctrl+D)하면 **자동으로 언마운트까지** 끝낸다.
@@ -77,7 +86,33 @@ bash scripts/termux-chroot.sh
   덮어쓸 수 있다.
 
 이후 안에서는 그냥 `cd /root/instructor-recruiting`처럼 **절대경로**로 이동한다.
-`/sdcard/파일.pdf`도 그대로 접근된다(위에서 bind mount했으므로).
+
+### 상주 실행 — 대화형 셸에서 `&`로 백그라운드 던지지 말 것
+
+대화형 셸(`bash scripts/termux-chroot.sh`, 인자 없이)에서 `npm run bot &`
+띄우고 `exit`하면, `exit`하는 순간 스크립트의 언마운트 트랩이 발동해
+`/dev`·`/proc`·`/sys`가 빠져버린다 — 봇 프로세스는 안 죽어도 `/dev/urandom`
+같은 걸 새로 열어야 하는 시점에 깨질 수 있다.
+
+**대신 명령을 인자로 넘긴다.** 그러면 그 명령이 스크립트의 "메인 프로세스"가
+되어, 실제로 그 명령이 끝날 때만(=봇이 죽을 때만) 언마운트가 일어난다.
+
+```bash
+bash scripts/termux-chroot.sh 'cd /root/instructor-recruiting && exec npm run bot'
+```
+
+이걸 Termux 쪽에서 백그라운드로 던져서 상주시킨다.
+
+```bash
+nohup bash scripts/termux-chroot.sh \
+  'cd /root/instructor-recruiting && exec npm run bot' \
+  > ~/bot.log 2>&1 &
+disown
+```
+
+Termux:Boot 스크립트(`~/.termux/boot/`)에도 이 `nohup ... & disown` 줄을
+그대로 넣으면 재부팅 시 자동 기동된다. 로그는 `~/bot.log`에서 `tail -f`로
+확인한다.
 
 ## 2단계 — 레포를 다시 클론하고 스모크 테스트
 
