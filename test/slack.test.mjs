@@ -50,6 +50,20 @@ test('봇 자신의 메시지에 반응하지 않는다', () => {
   assert.equal(shouldIntake({ channel: 'D1', user: 'UBOT', files: [pdf] }, { botUserId: 'UBOT' }).reason, 'self');
 });
 
+test('진행상황 메시지 편집(message_changed 등)은 "파일 첨부" 거절로 새지 않는다', () => {
+  // createProgressReporter가 chat.update로 같은 메시지를 계속 고쳐 쓰는데,
+  // 이때 슬랙이 쏘는 message_changed/message_deleted 이벤트는 bot_id/user가
+  // event.message 안에 있어 최상위 봇 체크를 그냥 통과하고 files도 없어서,
+  // 예전엔 진행 단계 수만큼 "커리큘럼 파일을 첨부해 주세요"가 반복 발송됐다
+  // (2026-09-15 실사용 중 재현).
+  for (const subtype of ['message_changed', 'message_deleted', 'message_replied', 'thread_broadcast']) {
+    const verdict = shouldIntake({ channel: 'D1', subtype, message: { bot_id: 'B1' } });
+    assert.equal(verdict.accept, false, subtype);
+    assert.equal(verdict.reason, 'edit', subtype);
+    assert.equal(rejectionMessage(verdict.reason, verdict), null, subtype);
+  }
+});
+
 test('txt와 md도 받는다', () => {
   for (const name of ['a.txt', 'b.md']) {
     assert.equal(shouldIntake({ channel: 'D1', user: 'U1', files: [{ name }] }).accept, true, name);

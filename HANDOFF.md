@@ -139,14 +139,62 @@ PDF/HTML/MD로 된 커리큘럼·제안서를 받아 → 모델이 사실만 추
    - `nohup bash scripts/termux-chroot.sh 'cd /root/instructor-recruiting && exec npm run bot' > ~/bot.log 2>&1 & disown`
      로 상주 실행. Termux:Boot 스크립트에 같은 줄 넣으면 재부팅 시 자동
      기동.
-   - **막힌 지점**: `SLACK_BOT_TOKEN`이 `invalid_auth`로 거부됨. 코드/플랫폼
-     문제 아니고 토큰 자체 문제로 보임(만료·재설치로 무효화·복붙 오류 등) —
-     내일 Slack API 대시보드에서 Bot Token 재발급해서 이어서 검증.
+   - **막힌 지점(해소, 2026-09-15)**: `SLACK_BOT_TOKEN` `invalid_auth`는
+     재발급으로 해결. 봇이 실제로 뜨는 것까지는 확인함.
+   - **간헐적 SIGABRT + 포트 충돌(해소, 2026-09-15)**: 모델 호출 중
+     `Claude Code process terminated by signal SIGABRT`(Bun 패닉,
+     `Linux Kernel v4.14.83`)가 보였던 사례. 처음엔 "Bun이 요구하는 커널
+     5.1+(권장 5.6+)에 못 미쳐서 이 폰에서 원천적으로 안 된다"고 단정했다가,
+     같은 세션에서 바로 다음 시도가 정상 성공해서 뒤집었다. 실제 원인은
+     **좀비 프로세스**였다 — `~/bot.log`에 새 인스턴스가 시작하자마자
+     `Error: listen EADDRINUSE: address already in use 0.0.0.0:3000`가
+     찍혀 있어서, 예전에 띄웠던 봇이 안 죽고 포트 3000을 쥔 채 계속 돌고
+     있었다는 게 확인됐다(`su -c "ps aux | grep node"`로는 안 잡혔지만
+     `su -c 'netstat -tlnp | grep 3000'`으로 실제 PID를 찾아 `kill -9`로
+     정리함). 좀비를 죽이자 `free -h`도 (`available` 기준) 4.3G로 넉넉해져서,
+     SIGABRT도 이 좀비가 자원을 갉아먹던 부작용이었을 가능성이 높다 —
+     **커널 버전 자체가 하드 블로커라는 판단은 근거 부족이었다.** 다만
+     이 좀비가 정확히 언제부터 왜 안 죽고 남았는지(자동 언마운트 trap이
+     있던 구버전 스크립트로 띄웠던 게 마지막까지 살아있었을 가능성이 큼)는
+     소급 확인 못 함 — `scripts/termux-chroot.sh`를 고친 뒤로 새로 띄우는
+     인스턴스는 정상 종료되는지 계속 지켜볼 것.
+     - 교훈: 작은 예시로 한 번 안 되거나 된다고 결론 내리지 말라는 원칙
+       (§알아둘 것)은 거꾸로도 적용된다 — 한 번 실패했다고 "전면 불가"로
+       단정한 것도 같은 종류의 실수였다. 프로세스/포트 상태를 실제로
+       확인하기 전에는 "이 환경에서 근본적으로 안 된다"는 결론을 내리지
+       말 것.
+     - `scripts/termux-smoke-test.mjs`가 "성공"으로 보고하는 건 SDK
+       `import`만 확인한 것이지 실제 호출 성공을 보장하지 않는다는 점은
+       여전히 유효(스크립트 주석에도 명시돼 있음).
+   - **진행상황 로그가 "파일 첨부해주세요"를 반복 발송하는 버그(해소,
+     2026-09-15)**: 실제로는 좀비 프로세스와 별개의, 진짜 코드 버그였다.
+     `createProgressReporter`(§6)가 같은 슬랙 메시지를 `chat.update`로
+     계속 고쳐 쓰는데, 슬랙은 편집마다 `subtype: 'message_changed'`(지우면
+     `message_deleted`)인 `message` 이벤트를 새로 보낸다. 이런 이벤트는
+     `bot_id`/`user`가 최상위가 아니라 `event.message` 안에 들어있어서
+     `adapters/slack/intake.mjs`의 `shouldIntake`가 봇 자신의 메시지로
+     인식을 못 하고 그냥 통과시켰고, `files`도 없으니 매번 "커리큘럼 파일을
+     첨부해 주세요"를 새로 보냈다 — 진행 단계를 몇 번 갱신하느냐만큼
+     반복됐다(실사용에서 "모델 세션 시작" 뒤에 3번 연속 재현). **수정**:
+     `shouldIntake`에 `message_changed`/`message_deleted`/`message_replied`/
+     `thread_broadcast`/`channel_join`/`channel_leave` 서브타입을 걸러내는
+     `NON_CONTENT_SUBTYPES` 체크를 맨 앞에 추가(`reason: 'edit'`,
+     `rejectionMessage`는 이미 default가 `null`이라 조용히 무시됨).
+     `test/slack.test.mjs`에 회귀 테스트 추가, `npm test` 237개 전부 통과.
    - 회사 정책/유지보수 관점에서 "굳이 법인폰을 루팅해야 하나, 차라리 팀
-     공용 윈도우 노트북에 붙이는 게 낫지 않나"는 논의가 나옴 — 결론 안
-     남. proot-distro만 쓰면 루팅 자체가 필요 없다는 점, 삼성 기기는
+     공용 윈도우 노트북에 붙이는 게 낫지 않나"는 논의가 나왔었다 — 위
+     커널 이슈로 이 방향이 유력해졌다. proot-distro만 쓰면 루팅 자체가
+     필요 없다는 점(그래도 커널 버전 문제는 동일하게 남는다), 삼성 기기는
      일반 배터리 최적화 제외만으로 안 되고 "절전 앱"/"深 절전 앱" 리스트도
      따로 빼야 한다는 점도 참고.
+   - **별건으로 의심되는 것**: 같은 시점에 슬랙 DM에 "커리큘럼 파일을
+     첨부해 주세요"(intake.mjs의 `no_file` 거절 메시지)가 3번 연속 찍힌
+     사례 있음. 이전에 자동 언마운트 trap이 상주 중인 봇 밑에서
+     `/dev`·`/proc`·`/sys`를 뽑아버려 봇이 죽는 문제가 있었는데(2026-09-15
+     `scripts/termux-chroot.sh`에서 trap 제거로 고침), 그 여파로 좀비
+     프로세스가 여러 개 남아 있진 않은지 `su -c "ps aux | grep node"`로
+     확인 필요 — node 프로세스가 1개보다 많으면 그게 중복 응답의 원인.
+     아직 확인 결과 대기 중.
 
 ## 알아둘 것 (다시 겪지 않기 위해)
 

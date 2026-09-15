@@ -2,22 +2,28 @@
 #
 # proot-distro가 이미 받아둔 Ubuntu rootfs로 "진짜" chroot 진입한다.
 # proot(ptrace 기반 에뮬레이션)보다 오버헤드가 적다 — 대신 root가 필요하고,
-# /dev·/proc·/sys를 bind mount해야 한다. 이 스크립트가 그 과정을 전부 대신
-# 하고, 대화형 셸이 끝나면(또는 넘겨준 명령이 끝나면) 자동으로 언마운트한다.
+# /dev·/proc·/sys를 bind mount해야 한다. 이 스크립트가 그 과정을 대신 한다.
 #
 # 사용법:
 #   bash scripts/termux-chroot.sh                 # 대화형 셸 (테스트용)
 #   bash scripts/termux-chroot.sh '<명령어>'       # 그 명령을 포그라운드로 실행
 #
-# **봇을 상주시킬 때는 반드시 두 번째 형태를 쓴다.** 대화형 셸에서
-# `npm run bot &`로 백그라운드 던지고 `exit`하면, exit 순간 이 스크립트의
-# 언마운트 트랩이 발동해 /dev·/proc·/sys가 빠져버린다 — 봇이 살아있어도
-# /dev/urandom 같은 걸 새로 열어야 하는 시점에 깨질 수 있다. 명령을 인자로
-# 넘기면 그 명령이 "메인 프로세스"가 되어, 그게 실제로 끝날 때만
-# 언마운트가 일어난다. Termux 쪽에서 이 스크립트 자체를
-# `nohup ... & disown`으로 백그라운드에 두면 봇이 안전하게 상주한다.
+# **더 이상 자동으로 언마운트하지 않는다(2026-09-15 변경).** 예전엔 대화형
+# 셸이 끝나거나 넘겨준 명령이 끝나면 trap으로 /dev·/proc·/sys를 자동
+# 언마운트했는데, 이게 실전에서 문제를 일으켰다: 봇을 nohup으로 띄워 상주시킨
+# 뒤에도 같은 rootfs에 대해 진단용으로 이 스크립트를 짧게 여러 번 더 실행하는
+# 일이 흔했고(예: curl로 토큰 확인, tmp 정리 등), 그 "다른" 실행이 끝나면서
+# 언마운트가 걸리면 옆에서 계속 돌고 있던 봇 프로세스 밑에서 /dev·/proc·/sys가
+# 뽑혀 나가 버렸다. 봇이 죽지는 않지만 /dev/urandom 같은 걸 새로 열어야 하는
+# 시점에 이상 동작을 일으켰고, 그게 "세션 로그가 바뀌면서 첨부 요청이 반복해서
+# 뜨는" 증상의 원인으로 의심된다.
 #
-# 예:
+# 이제 마운트는 한 번 걸리면 그대로 유지된다. 봇을 재시작하거나 rootfs를
+# 정리하는 등 명시적으로 마운트를 풀어야 할 때만 아래처럼 직접 unmount한다:
+#
+#   su -c 'umount $ROOTFS/dev $ROOTFS/proc $ROOTFS/sys'
+#
+# 봇 상주 실행:
 #   nohup bash scripts/termux-chroot.sh \
 #     'cd /root/instructor-recruiting && exec npm run bot' \
 #     > ~/bot.log 2>&1 &
@@ -77,22 +83,16 @@ bind_into_rootfs /sys
 # 저장소가 아니라 슬랙 API로 받으므로 애초에 필요 없다. CLI로 손수 테스트할
 # 파일이 있으면 `cp /sdcard/파일 $ROOTFS/root/...`로 복사해 넣는 편이 낫다.
 
-cleanup() {
-  echo ""
-  echo "정리 중 — bind mount 해제..."
-  umount "$ROOTFS/sys" 2>/dev/null || true
-  umount "$ROOTFS/proc" 2>/dev/null || true
-  umount "$ROOTFS/dev" 2>/dev/null || true
-  echo "완료."
-}
-trap cleanup EXIT
+# 자동 언마운트 없음(2026-09-15) — 마운트는 그대로 두고 나간다. 상주 중인
+# 다른 프로세스(봇 등)가 같은 rootfs를 쓰고 있을 수 있어서, 이 실행이 끝난다고
+# /dev·/proc·/sys를 뽑아버리면 그쪽이 깨진다. 필요하면 위 안내대로 손으로 umount.
 
 # env -i로 밖의 환경변수를 깨끗이 지우고 필요한 것만 명시적으로 넣는다.
 # 이게 없으면 Termux의 PATH를 그대로 물려받아 안쪽 바이너리를 못 찾는
 # "ls: command not found" 문제가 재발한다.
 if [ "$#" -eq 0 ]; then
   echo "chroot 진입 (대화형): $ROOTFS"
-  echo "(exit 또는 Ctrl+D로 나가면 자동으로 언마운트됩니다)"
+  echo "(exit 또는 Ctrl+D로 나가도 /dev·/proc·/sys는 마운트된 채로 남습니다 — 자동 언마운트 없음)"
   echo ""
   chroot "$ROOTFS" /usr/bin/env -i \
     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \

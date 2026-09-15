@@ -37,11 +37,30 @@ export function isPdfFile(file) {
 }
 
 /**
+ * 진행상황 로그(`createProgressReporter`)가 같은 메시지를 `chat.update`로
+ * 계속 고쳐 쓰는데, 슬랙은 그 편집마다 `message_changed`(지우면
+ * `message_deleted`) 서브타입의 `message` 이벤트를 새로 쏜다. 이런
+ * 이벤트는 `bot_id`/`user`가 최상위가 아니라 `event.message` 안에 있어서
+ * 아래 봇/자기자신 체크를 그냥 통과해버리고, `files`도 없으니 "파일을
+ * 첨부해주세요" 거절 메시지가 진행상황 갱신 횟수만큼 반복해서 나갔다
+ * (2026-09-15, 실사용 중 발견 — 진행상황 단계 수만큼 반복 재현됨).
+ */
+const NON_CONTENT_SUBTYPES = new Set([
+  'message_changed',
+  'message_deleted',
+  'message_replied',
+  'thread_broadcast',
+  'channel_join',
+  'channel_leave'
+]);
+
+/**
  * 봇 자신이 올린 파일, 봇 메시지, 스레드 소음을 걸러낸다.
  * `botId`는 auth.test로 얻은 우리 봇의 ID다.
  */
 export function shouldIntake(event, { botUserId } = {}) {
   if (!event) return { accept: false, reason: 'empty' };
+  if (NON_CONTENT_SUBTYPES.has(event.subtype)) return { accept: false, reason: 'edit' };
   if (event.bot_id || event.subtype === 'bot_message') return { accept: false, reason: 'bot' };
   if (botUserId && event.user === botUserId) return { accept: false, reason: 'self' };
   if (!isDirectMessageChannel(event.channel)) return { accept: false, reason: 'not_dm' };
